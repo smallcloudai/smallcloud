@@ -72,7 +72,9 @@ def code_root():
         if p == os.path.dirname(p):
             assert 0, "cannot find code root, started from %s" % __file__
         p = os.path.dirname(p)
+    p += "/"  # that makes rsync happy
     print_if_appropriate("code root detected at: %s" % p)
+    return p
 
 
 def command_nodes(*args):
@@ -91,9 +93,12 @@ def command_scheduled(*args):
 
 
 def command_upload_code(*args, **kwargs):
-    root = code_root()
-    upload_dest = []
     user = kwargs.get("user", "user")
+    coderoot = code_root()
+    upload_dest = []
+    if len(args) == 0:
+        print("please specify computers to upload your code, for example \"myjob05*\", also try \"list\"")
+        return
     for j in args:
         nodes_json = fetch_json(v1_url + "nodes")
         for node_rec in nodes_json:
@@ -108,11 +113,35 @@ def command_upload_code(*args, **kwargs):
         # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
         # "--delete" -- nice to have, but has unexpected effects
         cmd = [
-            "rsync", "-rpl", "-c", "--itemize-changes", ".", f"{dest['user']}@{dest['ip']}:code", "--filter=:- .gitignore", "--exclude=.git",
+            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"{dest['user']}@{dest['ip']}:code/", "--filter=:- .gitignore", "--exclude=.git",
             "-e", f"ssh -p {dest['port']} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
             ]
-        r = run(cmd, cwd=root, stdout=sys.stdout, stderr=sys.stderr)
+        r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         assert r==0, r
+
+def command_ssh(*args, **kwargs):
+    assert len(args) == 1, "can only ssh to one server at a time"
+    user = kwargs.get("user", "user")
+    job = args[0]
+    nodes_json = fetch_json(v1_url + "nodes")
+    computer = None
+    for node_rec in nodes_json:
+        node_name = node_rec["node_name"]
+        if node_name==job:
+            computer = {'ip': node_rec["ip_internal"], 'port': node_rec["port"], 'user': user}
+    if not computer:
+        print("computer %s not found" % job)
+        return
+    cmd = [
+        "/usr/bin/ssh",
+        "%s@%s" % (user, computer['ip']),
+        "-p", "%i" % computer['port'],
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        ]
+    print("ssh", " ".join(cmd))
+    # this replaces the current process with ssh
+    os.execv("/usr/bin/ssh", cmd)
 
 
 def run_command(command, *args, **kwargs):
@@ -129,21 +158,8 @@ def run_command(command, *args, **kwargs):
     elif command == "scheduled":
         command_scheduled()
 
-    # elif command == "ssh":
-    #     assert len(jobs) == 1
-    #     j = jobs[0]
-    #     nodes = version0.nodes_from_job(j)
-    #     n0 = nodes[0]
-    #     cmd = [
-    #         "/usr/bin/ssh",
-    #         "user@%s" % n0.addr,
-    #         "-p", "%i" % n0.port,
-    #         "-o", "StrictHostKeyChecking=no",
-    #         "-o", "UserKnownHostsFile=/dev/null",
-    #         # "-v",
-    #         ]
-    #     print("ssh", " ".join(cmd))
-    #     os.execv("/usr/bin/ssh", cmd)
+    elif command == "ssh":
+        command_ssh(*args, **kwargs)
 
     elif command == "upload-code":
         command_upload_code(*args, **kwargs)
