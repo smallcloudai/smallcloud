@@ -60,7 +60,7 @@ def fetch_json(url):
     t0 = time.time()
     j = json.loads(urllib.request.urlopen(url).read())
     t1 = time.time()
-    print_if_appropriate("%0.1fs %s" % (t1 - t0, url))
+    print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
     return j
 
 
