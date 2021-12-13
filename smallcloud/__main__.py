@@ -1,10 +1,15 @@
-import os, sys, json, time, subprocess
+import os, sys, json, time, subprocess, termcolor
 import urllib
 import urllib.request
 import pandas
 
 
 v1_url = "https://staging.smallcloud.ai/v1/"
+
+
+config_dir = os.path.expanduser("~/.config/smallcloud.ai")
+config_file = config_dir + "/cli_config"
+config_username = None
 
 
 global_option_dryrun = False
@@ -77,19 +82,62 @@ def code_root():
     return p
 
 
-def command_nodes(*args):
-    nodes_json = fetch_json(v1_url + "nodes")
-    print_table(nodes_json)
+def read_config_file():
+    if not os.path.exists(config_file):
+        return
+    with open(config_file, "r") as f:
+        config = json.loads(f.read())
+    global config_username
+    if time.time() > config["expiry"]:
+        print("your login credentials are expired, please re-login")
+    else:
+        config_username = config["login"]
+
+
+def command_login(*args):
+    assert len(args) <= 1
+    if len(args) == 0:
+        username = input("username: ")
+    else:
+        username = args[0]
+    os.makedirs(config_dir, exist_ok=True)
+    with open(config_file, "w") as f:
+        f.write(json.dumps({
+            "login": username,
+            "expiry": time.time() + 365*86400,
+            }, indent=4))
+    print("login credentials were stored in %s, expires in one year" % config_file)
+    print("try this:")
+    print(termcolor.colored("s list", attrs=["bold"]))
+    print(termcolor.colored("s free", attrs=["bold"]))
+    print(termcolor.colored("s reserve my_new_job a5000 4", attrs=["bold"]))
+
+
+def command_logout():
+    if not config_username:
+        print("you are not logged in")
+        return
+    os.remove(config_file)
+    print("logged out")
+
+
+def make_sure_have_login():
+    if not config_username:
+        print("please login to complete this operation")
+        quit(1)
 
 
 def command_free(*args):
+    # TODO cluster name
     free_json = fetch_json(v1_url + "free")
     print_table(free_json)
 
 
-def command_scheduled(*args):
-    free_json = fetch_json(v1_url + "scheduled")
-    print_table(free_json)
+def command_reserve(task_name, gpu_type, gpu_number):
+    make_sure_have_login()
+    print("task:", task_name)
+    print("account:", config_username)
+    print("gpu_type=%s * gpu_number=%s" % (gpu_type, gpu_number))
 
 
 def command_upload_code(*args, **kwargs):
@@ -144,25 +192,43 @@ def command_ssh(*args, **kwargs):
     os.execv("/usr/bin/ssh", cmd)
 
 
-def run_command(command, *args, **kwargs):
-    if command in ["list", "jobs"]:
-        #  jobs_json = urllib.request.urlopen(v1_url + "jobs").read()
-        pass
+def command_nodes(*args):
+    nodes_json = fetch_json(v1_url + "nodes")
+    print_table(nodes_json)
 
-    elif command == "nodes":
-        command_nodes()
 
-    elif command == "free":
+def command_scheduled(*args):
+    free_json = fetch_json(v1_url + "scheduled")
+    print_table(free_json)
+
+
+def cli_command(command, *args, **kwargs):
+    if command == "free":
         command_free()
 
-    elif command == "scheduled":
-        command_scheduled()
+    elif command == "login":
+        command_login(*args)
+
+    elif command == "logout":
+        command_logout()
+
+    elif command == "reserve":
+        command_reserve(*args, **kwargs)
+
+    elif command in ["list", "jobs"]:
+        pass
 
     elif command == "ssh":
         command_ssh(*args, **kwargs)
 
     elif command == "upload-code":
         command_upload_code(*args, **kwargs)
+
+    elif command == "nodes":
+        command_nodes()
+
+    elif command == "scheduled":
+        command_scheduled()
 
     # elif command == "tail":
     #     print("tail!")
@@ -183,7 +249,8 @@ if __name__=="__main__":
     global_option_dryrun = args.dry
     global_option_json = args.json
     global_option_verbose = args.verbose
+    read_config_file()
     kwargs = {}
     if args.user:
         kwargs["user"] = args.user
-    run_command(*args.command, **kwargs)
+    cli_command(*args.command, **kwargs)
