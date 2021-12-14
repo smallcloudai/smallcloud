@@ -1,10 +1,17 @@
-import os, sys, json, time, subprocess, termcolor
-import urllib
+import os, sys, json, time, subprocess, termcolor, traceback
+import urllib, ssl
 import urllib.request
+import urllib.error
 import pandas
 
+ # try click
 
-v1_url = "https://staging.smallcloud.ai/v1/"
+
+v1_url = "https://www.smallcloud.ai/v1/"
+if os.environ.get("staging"):
+    v1_url = v1_url.replace("www", "staging")
+if os.environ.get("local"):
+    v1_url = v1_url.replace("www", "local")
 
 
 config_dir = os.path.expanduser("~/.config/smallcloud.ai")
@@ -17,7 +24,25 @@ global_option_verbose = False
 global_option_json = False
 
 
-# prefix command with dry=1 or verbose=1
+def fetch_json(url, post_json=None):
+    t0 = time.time()
+    try:
+        if post_json is not None:
+            print(json.dumps(post_json))
+        req = urllib.request.Request(
+            url,
+            json.dumps(post_json).encode("utf-8") if post_json else None,
+            {'Content-Type': 'application/json'}
+        )
+        j = json.loads(urllib.request.urlopen(req).read())
+        t1 = time.time()
+        print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
+    except urllib.error.URLError:
+        print("ERROR %s" % (url))
+        traceback.print_exc()
+        quit(1)
+    return j
+
 
 def run(cmd, dry=False, verbose=None, stdout=None, stderr=None, **kwargs):
     verbose = int(os.environ.get("verbose", "0"))
@@ -59,14 +84,6 @@ def print_table(resp):
         for column in flatlist[0].keys():
             df[column] = [x[column] for x in flatlist]
         print(df)
-
-
-def fetch_json(url):
-    t0 = time.time()
-    j = json.loads(urllib.request.urlopen(url).read())
-    t1 = time.time()
-    print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
-    return j
 
 
 def code_root():
@@ -133,11 +150,29 @@ def command_free(*args):
     print_table(free_json)
 
 
-def command_reserve(task_name, gpu_type, gpu_number):
+def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
     make_sure_have_login()
     print("task:", task_name)
     print("account:", config_username)
-    print("gpu_type=%s * gpu_number=%s" % (gpu_type, gpu_number))
+    print("gpu_type=%s * gpu_min=%s gpu_max=%s gpu_incr=%s" % (gpu_type, gpu_min, gpu_max, gpu_incr))
+    post_json = {
+        "account": config_username,
+        "task_name": task_name,
+        "gpu_type": gpu_type,
+        "gpu_min": gpu_min,
+        }
+    if gpu_max is not None:
+        post_json["gpu_max"] = gpu_max
+    if gpu_incr is not None:
+        post_json["gpu_incr"] = gpu_incr
+    ret_json = fetch_json(v1_url + "reserve", post_json)
+    print(ret_json)
+
+
+def command_list():
+    make_sure_have_login()
+    resp = fetch_json(v1_url + "list")
+    print_table(resp)
 
 
 def command_upload_code(*args, **kwargs):
@@ -216,7 +251,7 @@ def cli_command(command, *args, **kwargs):
         command_reserve(*args, **kwargs)
 
     elif command in ["list", "jobs"]:
-        pass
+        command_list()
 
     elif command == "ssh":
         command_ssh(*args, **kwargs)
