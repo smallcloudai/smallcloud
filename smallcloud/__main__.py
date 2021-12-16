@@ -24,22 +24,30 @@ global_option_verbose = False
 global_option_json = False
 
 
-def fetch_json(url, post_json=None):
+def fetch_json(url, post_json=None, get_params=None):
     t0 = time.time()
     try:
-        if post_json is not None:
+        if get_params is not None:
+            url += "?" + urllib.parse.urlencode(get_params)
+        elif post_json is not None:
             print(json.dumps(post_json))
         req = urllib.request.Request(
             url,
             json.dumps(post_json).encode("utf-8") if post_json else None,
             {'Content-Type': 'application/json'}
         )
-        j = json.loads(urllib.request.urlopen(req).read())
+        result = urllib.request.urlopen(req).read()
         t1 = time.time()
         print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
     except urllib.error.URLError:
         print("ERROR %s" % (url))
         traceback.print_exc()
+        quit(1)
+    try:
+        j = json.loads(result)
+    except ValueError:
+        print("response from server is not a json")
+        print(result.decode("utf-8"))
         quit(1)
     return j
 
@@ -146,7 +154,7 @@ def make_sure_have_login():
 
 def command_free(*args):
     # TODO cluster name
-    free_json = fetch_json(v1_url + "free")
+    free_json = fetch_json(v1_url + "free", get_params={"account": config_username})
     print_table(free_json)
 
 
@@ -169,10 +177,16 @@ def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
     print(ret_json)
 
 
-def command_list():
+def command_jobs():
     make_sure_have_login()
-    resp = fetch_json(v1_url + "list")
+    resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
     print_table(resp)
+
+
+def command_delete(task_name):
+    make_sure_have_login()
+    resp = fetch_json(v1_url + "delete", get_params={"account": config_username, "task_name": task_name})
+    print(resp)
 
 
 def command_upload_code(*args, **kwargs):
@@ -251,7 +265,10 @@ def cli_command(command, *args, **kwargs):
         command_reserve(*args, **kwargs)
 
     elif command in ["list", "jobs"]:
-        command_list()
+        command_jobs()
+
+    elif command in ["delete", "remove"]:
+        command_delete(*args)
 
     elif command == "ssh":
         command_ssh(*args, **kwargs)
