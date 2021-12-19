@@ -70,7 +70,7 @@ def print_if_appropriate(*args):
         print(*args)
 
 
-def print_table(resp):
+def print_table(resp, omit_for_brevity=[]):
     if global_option_json:
         print(json.dumps(resp, indent=4))
         return
@@ -80,17 +80,29 @@ def print_table(resp):
     flatlist = None
     if isinstance(resp, dict):
         keys = sorted(resp.keys())
-        if isinstance(resp[keys[0]], dict):
-            flatlist = [{'name': k, **resp[k]} for k in keys]
+        assert isinstance(resp[keys[0]], dict)
+        flatlist = [resp[k] for k in keys]
     elif isinstance(resp, list):
         flatlist = resp
     elif isinstance(resp, str):
         print("server returned:\n%s" % str(resp))
         quit(1)
+    def print_datetime(ts):
+        if ts==0: return "-"
+        date = time.strftime("%Y-%m-%d", time.localtime(time.time()))
+        full = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+        if full.startswith(date):
+            return "today" + full[len(date):]
+        return full
     if flatlist is not None:
         df = pandas.DataFrame()
         for column in flatlist[0].keys():
-            df[column] = [x[column] for x in flatlist]
+            if column in omit_for_brevity:
+                continue
+            if not column.startswith("ts_"):
+                df[column.upper()] = [x[column] for x in flatlist]
+            else:
+                df[column.upper()] = [print_datetime(x[column]) for x in flatlist]
         print(df)
 
 
@@ -180,7 +192,7 @@ def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
 def command_jobs():
     make_sure_have_login()
     resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
-    print_table(resp)
+    print_table(resp, ["cluster_name", "tenant_name", "tenant_image", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
 
 
 def command_delete(task_name):
