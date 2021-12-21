@@ -106,6 +106,15 @@ def print_table(resp, omit_for_brevity=[]):
         print(df)
 
 
+def pretty_print_response(json):
+    if isinstance(json, dict) and "retcode" in json:
+        retcode = json["retcode"]
+        color = "green" if retcode == "OK" else "red"
+        print(termcolor.colored(retcode, color), json["human_readable_message"])
+        return
+    print(json)
+
+
 def code_root():
     p = os.path.dirname(__file__)
     while 1:
@@ -172,9 +181,7 @@ def command_free(*args):
 
 def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
     make_sure_have_login()
-    print("task:", task_name)
-    print("account:", config_username)
-    print("gpu_type=%s * gpu_min=%s gpu_max=%s gpu_incr=%s" % (gpu_type, gpu_min, gpu_max, gpu_incr))
+    print("reserving %s * %s" % (gpu_type, gpu_min))
     post_json = {
         "account": config_username,
         "task_name": task_name,
@@ -186,7 +193,7 @@ def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
     if gpu_incr is not None:
         post_json["gpu_incr"] = gpu_incr
     ret_json = fetch_json(v1_url + "reserve", post_json)
-    print(ret_json)
+    pretty_print_response(ret_json)
 
 
 def command_jobs():
@@ -195,10 +202,11 @@ def command_jobs():
     print_table(resp, ["cluster_name", "tenant_name", "tenant_image", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
 
 
-def command_delete(task_name):
+def command_delete(*task_names):
     make_sure_have_login()
-    resp = fetch_json(v1_url + "delete", get_params={"account": config_username, "task_name": task_name})
-    print(resp)
+    for tname in task_names:
+        resp = fetch_json(v1_url + "delete", get_params={"account": config_username, "task_name": tname})
+        pretty_print_response(resp)
 
 
 def command_upload_code(*args, **kwargs):
