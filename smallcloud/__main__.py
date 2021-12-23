@@ -199,7 +199,9 @@ def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
 def command_jobs():
     make_sure_have_login()
     resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
-    print_table(resp, ["cluster_name", "tenant_name", "tenant_image", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
+    day_ago = time.time() - 24*3600
+    finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
+    print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
 
 
 def command_delete(*task_names):
@@ -261,7 +263,7 @@ def command_ssh(*args, **kwargs):
     os.execv("/usr/bin/ssh", cmd)
 
 
-def command_nodes(*args):
+def command_nodes():
     nodes_json = fetch_json(v1_url + "nodes")
     print_table(nodes_json)
 
