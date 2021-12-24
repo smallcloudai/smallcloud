@@ -56,12 +56,15 @@ def run(cmd, dry=False, verbose=None, stdout=None, stderr=None, **kwargs):
     verbose = int(os.environ.get("verbose", "0"))
     if not verbose:
         stdout = subprocess.DEVNULL if stdout is None else stdout
-        stderr = subprocess.DEVNULL if stderr is None else stderr
+        stderr = subprocess.PIPE if stderr is None else stderr
     if not global_option_json:
         print(" ".join(cmd))
     if global_option_dryrun:
         return 0
     completed_process = subprocess.run(cmd, stdout=stdout, stderr=stderr, **kwargs)
+    if completed_process.returncode != 0:
+        print("RETCODE: %s" % completed_process.returncode)
+        print("STDERR: %s" % completed_process.stderr.decode("utf-8"))
     return completed_process.returncode
 
 
