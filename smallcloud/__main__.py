@@ -92,10 +92,11 @@ def print_table(resp, omit_for_brevity=[]):
         quit(1)
     def print_datetime(ts):
         if ts==0: return "-"
-        date = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         full = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
-        if full.startswith(date):
-            return "today" + full[len(date):]
+        if full.startswith(time.strftime("%Y-%m-%d", time.localtime(time.time()))):
+            return time.strftime("%H:%M:%S", time.localtime(ts))
+        if full.startswith(time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))):
+            return time.strftime("%a %H:%M:%S", time.localtime(ts))
         return full
     if flatlist is not None:
         df = pandas.DataFrame()
@@ -204,7 +205,7 @@ def command_jobs():
     resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
     day_ago = time.time() - 24*3600
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
-    print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
+    print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
 
 
 def command_delete(*task_names):
