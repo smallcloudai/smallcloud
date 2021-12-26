@@ -250,24 +250,32 @@ def command_upload_code(*args, **kwargs):
 def command_ssh(*args, **kwargs):
     assert len(args) == 1, "can only ssh to one server at a time"
     user = kwargs.get("user", "user")
-    job = args[0]
-    nodes_json = fetch_json(v1_url + "nodes")
-    computer = None
-    for node_rec in nodes_json:
-        node_name = node_rec["node_name"]
-        if node_name==job:
-            computer = {'ip': node_rec["ip_internal"], 'port': node_rec["port"], 'user': user}
-    if not computer:
-        print("computer %s not found" % job)
+    computer_name = args[0]
+    sshables = fetch_json(v1_url + "list-ssh-able", get_params={"account": config_username})
+    closest_match = None
+    closest_match_dist = 1e10
+    import difflib
+    for rec in sshables:
+        if rec["name"] == computer_name:
+            break
+        dist = difflib.SequenceMatcher(None, rec["name"], computer_name).ratio()
+        if dist > 0.8 and dist < closest_match_dist:
+            closest_match = rec
+            closest_match_dist = dist
+    else:
+        print_table(sshables)
+        print("Computer \"%s\" wasn't found." % computer_name)
+        if closest_match is not None:
+            print("Did you mean \"%s\"?" % closest_match["name"])
         return
     cmd = [
-        "/usr/bin/ssh",
-        "%s@%s" % (user, computer['ip']),
-        "-p", "%i" % computer['port'],
+        "ssh",
+        "%s@%s" % (user, rec['ssh_addr']),
+        "-p", "%i" % rec['ssh_port'],
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
         ]
-    print("ssh", " ".join(cmd))
+    print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
 
