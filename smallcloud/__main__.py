@@ -1,8 +1,7 @@
-import os, sys, json, time, subprocess, termcolor, traceback
+import os, sys, json, time, subprocess, termcolor
 import urllib, ssl
 import urllib.request
 import urllib.error
-import pandas
 
  # try click
 
@@ -16,6 +15,7 @@ if os.environ.get("local"):
 
 config_dir = os.path.expanduser("~/.config/smallcloud.ai")
 config_file = config_dir + "/cli_config"
+ssh_rsa_id = config_dir + "/dedicated_ssh_rsa_id"
 config_username = None
 
 
@@ -41,6 +41,7 @@ def fetch_json(url, post_json=None, get_params=None):
         print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
     except urllib.error.URLError:
         print("ERROR %s" % (url))
+        import traceback
         traceback.print_exc()
         quit(1)
     try:
@@ -99,6 +100,7 @@ def print_table(resp, omit_for_brevity=[]):
             return time.strftime("%a %H:%M:%S", time.localtime(ts))
         return full
     if flatlist is not None:
+        import pandas   # is slow, don't import at the top of the file.
         df = pandas.DataFrame()
         for column in flatlist[0].keys():
             if column in omit_for_brevity:
@@ -139,7 +141,7 @@ def read_config_file():
         config = json.loads(f.read())
     global config_username
     if time.time() > config["expiry"]:
-        print("your login credentials are expired, please re-login")
+        print("Your login credentials are expired, please re-login.")
     else:
         config_username = config["login"]
 
@@ -156,11 +158,11 @@ def command_login(*args):
             "login": username,
             "expiry": time.time() + 365*86400,
             }, indent=4))
-    print("login credentials were stored in %s, expires in one year" % config_file)
-    print("try this:")
+    print("Login credentials were stored in %s, will expire in one year." % config_file)
+    print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
     print(termcolor.colored("s free", attrs=["bold"]))
-    print(termcolor.colored("s reserve my_new_job a5000 4", attrs=["bold"]))
+    print(termcolor.colored("s reserve my-new-job a5000 4", attrs=["bold"]))
 
 
 def command_logout():
@@ -204,6 +206,9 @@ def command_jobs():
     make_sure_have_login()
     resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
     day_ago = time.time() - 24*3600
+    if resp == []:
+        print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve my-new-job a5000 4", attrs=["bold"]))
+        return
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
     print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
 
@@ -272,9 +277,29 @@ def command_nodes():
     print_table(nodes_json)
 
 
-def command_scheduled(*args):
+def command_scheduled():
     free_json = fetch_json(v1_url + "scheduled")
     print_table(free_json)
+
+
+def command_ssh_keygen(*args):
+    try:
+        os.unlink(ssh_rsa_id)
+    except FileNotFoundError:
+        pass
+    r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", ""])
+    assert r==0, r
+    resp = fetch_json(v1_url + "ssh-public-key-upload", post_json={"account": config_username, "ssh_public_key": open(ssh_rsa_id + ".pub").read()})
+    pretty_print_response(resp)
+
+
+def command_ssh_upload(*args):
+    assert len(args) == 1, "please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want simple ssh without many additional options to work, otherwise use \"s ssh-keygen\" to create a dedicated key)"
+    resp = fetch_json(v1_url + "ssh-public-key-upload", post_json={
+        "account": config_username,
+        "ssh_public_key": open(os.path.expanduser(args[0])).read()
+    })
+    pretty_print_response(resp)
 
 
 def cli_command(command, *args, **kwargs):
@@ -307,6 +332,12 @@ def cli_command(command, *args, **kwargs):
 
     elif command == "scheduled":
         command_scheduled()
+
+    elif command == "ssh-keygen":
+        command_ssh_keygen()
+
+    elif command == "ssh-upload":
+        command_ssh_upload(*args)
 
     # elif command == "tail":
     #     print("tail!")
