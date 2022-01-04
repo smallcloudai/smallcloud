@@ -57,7 +57,7 @@ def run(cmd, dry=False, verbose=None, stdout=None, stderr=None, **kwargs):
     verbose = int(os.environ.get("verbose", "0"))
     if not verbose:
         stdout = subprocess.DEVNULL if stdout is None else stdout
-        stderr = subprocess.PIPE if stderr is None else stderr
+    stderr = stderr or subprocess.PIPE
     if not global_option_json:
         print(" ".join(cmd))
     if global_option_dryrun:
@@ -65,6 +65,7 @@ def run(cmd, dry=False, verbose=None, stdout=None, stderr=None, **kwargs):
     completed_process = subprocess.run(cmd, stdout=stdout, stderr=stderr, **kwargs)
     if completed_process.returncode != 0:
         print("RETCODE: %s" % completed_process.returncode)
+    if completed_process.stderr and (verbose or completed_process.returncode != 0):
         print("STDERR: %s" % completed_process.stderr.decode("utf-8"))
     return completed_process.returncode
 
@@ -310,6 +311,15 @@ def command_ssh_upload(*args):
     pretty_print_response(resp)
 
 
+def command_promo(*args):
+    if len(args) == 0:
+        print("This command applies a promo code (might add money to your account).")
+        return
+    assert len(args) == 1
+    resp = fetch_json(v1_url + "apply-promo", get_params={"account": config_username, "code": args[0]})
+    pretty_print_response(resp)
+
+
 def cli_command(command, *args, **kwargs):
     if command == "free":
         command_free()
@@ -346,6 +356,9 @@ def cli_command(command, *args, **kwargs):
 
     elif command == "ssh-upload":
         command_ssh_upload(*args)
+
+    elif command == "promo":
+        command_promo(*args)
 
     # elif command == "tail":
     #     print("tail!")
