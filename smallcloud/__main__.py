@@ -106,7 +106,7 @@ def print_table(resp, omit_for_brevity=[]):
         for column in flatlist[0].keys():
             if column in omit_for_brevity:
                 continue
-            if not column.startswith("ts_"):
+            if not column.startswith("ts_") and not column.endswith("_ts"):
                 df[column.upper()] = [x[column] for x in flatlist]
             else:
                 df[column.upper()] = [print_datetime(x[column]) for x in flatlist]
@@ -163,7 +163,7 @@ def command_login(*args):
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
     print(termcolor.colored("s free", attrs=["bold"]))
-    print(termcolor.colored("s reserve my-new-job a5000 4", attrs=["bold"]))
+    print(termcolor.colored("s reserve a5000 4 myexperiment00", attrs=["bold"]))
 
 
 def command_logout():
@@ -186,19 +186,15 @@ def command_free(*args):
     print_table(free_json)
 
 
-def command_reserve(task_name, gpu_type, gpu_min, gpu_max=None, gpu_incr=None):
+def command_reserve(gpu_type, gpu_min, task_name):
     make_sure_have_login()
-    print("reserving %s * %s" % (gpu_type, gpu_min))
+    print("reserving %s*%s" % (gpu_type, gpu_min))
     post_json = {
         "account": config_username,
         "task_name": task_name,
         "gpu_type": gpu_type,
         "gpu_min": gpu_min,
         }
-    if gpu_max is not None:
-        post_json["gpu_max"] = gpu_max
-    if gpu_incr is not None:
-        post_json["gpu_incr"] = gpu_incr
     ret_json = fetch_json(v1_url + "reserve", post_json)
     pretty_print_response(ret_json)
 
@@ -208,7 +204,7 @@ def command_jobs():
     resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
     day_ago = time.time() - 24*3600
     if resp == []:
-        print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve my-new-job a5000 4", attrs=["bold"]))
+        print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve a5000 4 myexperiment00", attrs=["bold"]))
         return
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
     print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
@@ -320,6 +316,19 @@ def command_promo(*args):
     pretty_print_response(resp)
 
 
+def command_billing(subcmd):
+    resp = fetch_json(v1_url + subcmd, get_params={"account": config_username})
+    if subcmd == "money":
+        print(json.dumps(resp, indent=2))
+    else:
+        print_table(resp)
+
+
+def command_prices():
+    resp = fetch_json(v1_url + "prices")
+    print(resp)
+
+
 def cli_command(command, *args, **kwargs):
     if command == "free":
         command_free()
@@ -359,6 +368,18 @@ def cli_command(command, *args, **kwargs):
 
     elif command == "promo":
         command_promo(*args)
+
+    elif command == "billing":
+        command_billing("billing-short")
+
+    elif command == "billing-detailed":
+        command_billing("billing-detailed")
+
+    elif command in ["$", "money"]:
+        command_billing("money")
+
+    elif command == "prices":
+        command_prices()
 
     # elif command == "tail":
     #     print("tail!")
