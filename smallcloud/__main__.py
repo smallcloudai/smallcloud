@@ -50,6 +50,9 @@ def fetch_json(url, post_json=None, get_params=None):
         print("response from server is not a json")
         print(result.decode("utf-8"))
         quit(1)
+    if "retcode" in j and j["retcode"] != "OK":
+        print(termcolor.colored("ERROR", "red"), j["human_readable_message"])
+        quit(1)
     return j
 
 
@@ -375,7 +378,7 @@ def cli_command(command, *args, **kwargs):
     elif command == "billing-detailed":
         command_billing("billing-detailed")
 
-    elif command in ["$", "money"]:
+    elif command in ["$", "money", "dollars"]:
         command_billing("money")
 
     elif command == "prices":
