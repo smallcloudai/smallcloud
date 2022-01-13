@@ -17,6 +17,7 @@ config_dir = os.path.expanduser("~/.config/smallcloud.ai")
 config_file = config_dir + "/cli_config"
 ssh_rsa_id = config_dir + "/dedicated_ssh_rsa_id"
 config_username = None
+config_secret_api_key = None
 
 
 global_option_dryrun = False
@@ -24,7 +25,7 @@ global_option_verbose = False
 global_option_json = False
 
 
-def fetch_json(url, post_json=None, get_params=None):
+def fetch_json(url, post_json=None, get_params=None, headers={}):
     t0 = time.time()
     try:
         if get_params is not None:
@@ -34,7 +35,7 @@ def fetch_json(url, post_json=None, get_params=None):
         req = urllib.request.Request(
             url,
             json.dumps(post_json).encode("utf-8") if post_json else None,
-            {'Content-Type': 'application/json'}
+            {'Content-Type': 'application/json', **headers}
         )
         result = urllib.request.urlopen(req).read()
         t1 = time.time()
@@ -143,26 +144,33 @@ def read_config_file():
         return
     with open(config_file, "r") as f:
         config = json.loads(f.read())
-    global config_username
-    if time.time() > config["expiry"]:
+    global config_username, config_secret_api_key
+    if "expires_ts" in config and time.time() > config["expires_ts"] > 0:
         print("Your login credentials are expired, please re-login.")
     else:
-        config_username = config["login"]
+        config_username = config["account_name"]
+        config_secret_api_key = config["secret_api_key"]
 
 
 def command_login(*args):
     assert len(args) <= 1
-    if len(args) == 0:
-        username = input("username: ")
-    else:
-        username = args[0]
+    print("Please open this link in your browser:")
+    print(termcolor.colored(v1_url.replace("/v1/", "/cli-login"), attrs=["bold"]))
+    ticket = input("and copy-paste a response here: ")
+    resp = fetch_json(v1_url + "cli-login-response", get_params={"ticket": ticket})
+    if resp["retcode"] != "OK":
+        pretty_print_response(resp)
+        quit(1)
     os.makedirs(config_dir, exist_ok=True)
     with open(config_file, "w") as f:
         f.write(json.dumps({
-            "login": username,
-            "expiry": time.time() + 365*86400,
+            "account_name": resp["account_name"],
+            "expires_ts": resp["expires_ts"],
+            "secret_api_key": resp["secret_api_key"],
             }, indent=4))
-    print("Login credentials were stored in %s, will expire in one year." % config_file)
+    os.chmod(config_file, 0o600)
+    print("Logged in user name: %s" % resp["account_name"])
+    print("Login credentials were stored in %s." % config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
     print(termcolor.colored("s free", attrs=["bold"]))
@@ -183,9 +191,17 @@ def make_sure_have_login():
         quit(1)
 
 
+def account_and_secret_key():
+    if not config_username:
+        return {}   # some commands work without login
+    return {
+        "X-Account": config_username,
+        "X-Secret-API-Key": config_secret_api_key,
+    }
+
+
 def command_free(*args):
-    # TODO cluster name
-    free_json = fetch_json(v1_url + "free", get_params={"account": config_username})
+    free_json = fetch_json(v1_url + "free", headers=account_and_secret_key())
     print_table(free_json)
 
 
@@ -193,18 +209,17 @@ def command_reserve(gpu_type, gpu_min, task_name):
     make_sure_have_login()
     print("reserving %s*%s" % (gpu_type, gpu_min))
     post_json = {
-        "account": config_username,
         "task_name": task_name,
         "gpu_type": gpu_type,
         "gpu_min": gpu_min,
         }
-    ret_json = fetch_json(v1_url + "reserve", post_json)
+    ret_json = fetch_json(v1_url + "reserve", post_json, headers=account_and_secret_key())
     pretty_print_response(ret_json)
 
 
 def command_jobs():
     make_sure_have_login()
-    resp = fetch_json(v1_url + "jobs", get_params={"account": config_username})
+    resp = fetch_json(v1_url + "jobs", headers=account_and_secret_key())
     day_ago = time.time() - 24*3600
     if resp == []:
         print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve a5000 4 myexperiment00", attrs=["bold"]))
@@ -216,19 +231,19 @@ def command_jobs():
 def command_delete(*task_names):
     make_sure_have_login()
     for tname in task_names:
-        resp = fetch_json(v1_url + "delete", get_params={"account": config_username, "task_name": tname})
+        resp = fetch_json(v1_url + "delete", get_params={"task_name": tname}, headers=account_and_secret_key())
         pretty_print_response(resp)
 
 
 def command_upload_code(*args, **kwargs):
-    user = kwargs.get("user", "user")
+    user = kwargs.get("ssh_user", "user")
     coderoot = code_root()
     upload_dest = []
     if len(args) == 0:
         print("please specify computers to upload your code, for example \"myjob05*\", also try \"list\"")
         return
     for j in args:
-        nodes_json = fetch_json(v1_url + "nodes")
+        nodes_json = fetch_json(v1_url + "nodes", headers=account_and_secret_key())
         for node_rec in nodes_json:
             node_name = node_rec["node_name"]
             import fnmatch
@@ -249,9 +264,9 @@ def command_upload_code(*args, **kwargs):
 
 def command_ssh(*args, **kwargs):
     assert len(args) == 1, "can only ssh to one server at a time"
-    user = kwargs.get("user", "user")
+    user = kwargs.get("ssh_user", "user")
     computer_name = args[0]
-    sshables = fetch_json(v1_url + "list-ssh-able", get_params={"account": config_username})
+    sshables = fetch_json(v1_url + "list-ssh-able", headers=account_and_secret_key())
     closest_match = None
     closest_match_dist = 1e10
     import difflib
@@ -281,13 +296,8 @@ def command_ssh(*args, **kwargs):
 
 
 def command_nodes():
-    nodes_json = fetch_json(v1_url + "nodes")
+    nodes_json = fetch_json(v1_url + "nodes", headers=account_and_secret_key())
     print_table(nodes_json)
-
-
-def command_scheduled():
-    free_json = fetch_json(v1_url + "scheduled")
-    print_table(free_json)
 
 
 def command_ssh_keygen(*args):
@@ -297,16 +307,21 @@ def command_ssh_keygen(*args):
         pass
     r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", ""])
     assert r==0, r
-    resp = fetch_json(v1_url + "ssh-public-key-upload", post_json={"account": config_username, "ssh_public_key": open(ssh_rsa_id + ".pub").read()})
+    resp = fetch_json(
+        v1_url + "ssh-public-key-upload",
+        post_json={"ssh_public_key": open(ssh_rsa_id + ".pub").read()},
+        headers=account_and_secret_key())
     pretty_print_response(resp)
 
 
 def command_ssh_upload(*args):
-    assert len(args) == 1, "please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want simple ssh without many additional options to work, otherwise use \"s ssh-keygen\" to create a dedicated key)"
-    resp = fetch_json(v1_url + "ssh-public-key-upload", post_json={
-        "account": config_username,
-        "ssh_public_key": open(os.path.expanduser(args[0])).read()
-    })
+    if len(args) != 1:
+        print("please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, otherwise use \"s ssh-keygen\" to create a dedicated key)")
+        quit(1)
+    resp = fetch_json(
+        v1_url + "ssh-public-key-upload",
+        post_json={"ssh_public_key": open(os.path.expanduser(args[0])).read()},
+        headers=account_and_secret_key())
     pretty_print_response(resp)
 
 
@@ -315,12 +330,12 @@ def command_promo(*args):
         print("This command applies a promo code (might add money to your account).")
         return
     assert len(args) == 1
-    resp = fetch_json(v1_url + "apply-promo", get_params={"account": config_username, "code": args[0]})
+    resp = fetch_json(v1_url + "apply-promo", get_params={"code": args[0]}, headers=account_and_secret_key())
     pretty_print_response(resp)
 
 
 def command_billing(subcmd):
-    resp = fetch_json(v1_url + subcmd, get_params={"account": config_username})
+    resp = fetch_json(v1_url + subcmd, headers=account_and_secret_key())
     if subcmd == "money":
         print(json.dumps(resp, indent=2))
     else:
@@ -360,9 +375,6 @@ def cli_command(command, *args, **kwargs):
     elif command == "nodes":
         command_nodes()
 
-    elif command == "scheduled":
-        command_scheduled()
-
     elif command == "ssh-keygen":
         command_ssh_keygen()
 
@@ -397,7 +409,7 @@ if __name__=="__main__":
     parser.add_argument("--json", action="store_true", help="normally output tables are printed using pandas, switch json output")
     parser.add_argument("--dry", action="store_true", help="do not run commands, just print them")
     parser.add_argument("--verbose", action="store_true", help="show stdout of any subcommands")
-    parser.add_argument("--user", help="specify user name for 'ssh' and 'upload-code', default user name is 'user'")
+    parser.add_argument("--ssh-user", help="specify user name for 'ssh' and 'upload-code', default user name is 'user'")
     parser.add_argument("command", nargs="+", help="one of: free, list, ssh, upload-code, tail")
     args = parser.parse_args()
     global_option_dryrun = args.dry
@@ -405,6 +417,6 @@ if __name__=="__main__":
     global_option_verbose = args.verbose
     read_config_file()
     kwargs = {}
-    if args.user:
-        kwargs["user"] = args.user
+    if args.ssh_user:
+        kwargs["ssh_user"] = args.ssh_user
     cli_command(*args.command, **kwargs)
