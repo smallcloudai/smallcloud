@@ -247,7 +247,7 @@ def command_upload_code(*args, **kwargs):
     coderoot = code_root()
     upload_dest = []
     if len(args) == 0:
-        print("please specify computers to upload your code, for example \"myjob05*\", also try \"list\"")
+        print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
         return
     for j in args:
         nodes_json = fetch_json(v1_url + "nodes", headers=account_and_secret_key())
@@ -302,7 +302,7 @@ def command_ssh(user_at_name, *args):
         "%s@%s" % (user, right_rec['ssh_addr']),
         "-p", "%i" % right_rec['ssh_port'],
     ]
-    if rec["ed25519"]:
+    if right_rec["ed25519"]:
         # Ether way strict checking is on!
         with open(known_hosts_file, "wt") as f:
             f.write("\n".join(known_hosts) + "\n")
@@ -334,7 +334,7 @@ def command_ssh_keygen(*args):
 
 def command_ssh_upload(*args):
     if len(args) != 1:
-        print("please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, normally you use \"s ssh-keygen\" to create a dedicated key)")
+        print("Please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, for a dedicated key use \"s ssh-keygen\")")
         quit(1)
     resp = fetch_json(
         v1_url + "ssh-public-key-upload",
@@ -441,7 +441,7 @@ if __name__=="__main__":
         printhl("s list")
         print("      Prints your jobs, working and finished.")
         printhl("s reserve <gpu_type> <gpu_count> <job_name>")
-        print("      Reserve GPUs, start the job. If the job cannot start immediately, you will be asked if it should be queued.")
+        print("      Reserve GPUs, start the job. If the job cannot start immediately, it will be queued.")
         printhl("s ssh <job_name> [<any-ssh-args>]")
         print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
         printhl("s ssh-keygen")
