@@ -245,32 +245,19 @@ def command_delete(*task_names):
         pretty_print_response(resp)
 
 
-def command_upload_code(*args, **kwargs):
-    user = kwargs.get("ssh_user", "user")
-    coderoot = code_root()
-    upload_dest = []
-    if len(args) == 0:
-        print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
-        return
-    for j in args:
-        nodes_json = fetch_json(v1_url + "nodes", headers=account_and_secret_key())
-        for node_rec in nodes_json:
-            node_name = node_rec["node_name"]
-            import fnmatch
-            if fnmatch.fnmatch(node_name, j):
-                upload_dest.append({'computer': node_name, 'ip': node_rec["ip_internal"], 'port': node_rec["port"], 'user': user})
-    print_if_appropriate("uploading code to:")
-    print_table(upload_dest)
-    for dest in upload_dest:
-        # "-u" update based on modification time
-        # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
-        # "--delete" -- nice to have, but has unexpected effects
-        cmd = [
-            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"{dest['user']}@{dest['ip']}:code/", "--filter=:- .gitignore", "--exclude=.git",
-            "-e", f"ssh -p {dest['port']} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
-            ]
-        r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
-        assert r==0, r
+def fetch_sshables():
+    sshables = fetch_json(v1_url + "list-ssh-able", headers=account_and_secret_key())
+    known_hosts = []
+    for rec in sshables:
+        if rec["ed25519"]:
+            known_hosts.append("[%s]:%i %s" % (rec['ssh_addr'], rec['ssh_port'], rec['ed25519']))
+    return sshables, known_hosts
+
+
+def save_known_hosts(known_hosts):
+    with open(known_hosts_file, "wt") as f:
+        f.write("\n".join(known_hosts) + "\n")
+    os.chmod(known_hosts_file, 0o600)
 
 
 def command_ssh(user_at_name, *args):
@@ -279,17 +266,14 @@ def command_ssh(user_at_name, *args):
         user = "user"
     else:
         user, computer_name = user_at_name.split("@")
-    sshables = fetch_json(v1_url + "list-ssh-able", headers=account_and_secret_key())
     closest_match = None
     closest_match_dist = 1e10
+    sshables, known_hosts = fetch_sshables()
     import difflib
     right_rec = None
-    known_hosts = []
     for rec in sshables:
         if rec["name"] == computer_name:
             right_rec = rec
-        if rec["ed25519"]:
-            known_hosts.append("[%s]:%i %s" % (rec['ssh_addr'], rec['ssh_port'], rec['ed25519']))
         dist = difflib.SequenceMatcher(None, rec["name"], computer_name).ratio()
         if dist > 0.8 and dist < closest_match_dist:
             closest_match = rec
@@ -305,15 +289,43 @@ def command_ssh(user_at_name, *args):
         "%s@%s" % (user, right_rec['ssh_addr']),
         "-p", "%i" % right_rec['ssh_port'],
     ]
-    if right_rec["ed25519"]:
-        # Ether way strict checking is on!
-        with open(known_hosts_file, "wt") as f:
-            f.write("\n".join(known_hosts) + "\n")
-        os.chmod(known_hosts_file, 0o600)
+    if right_rec["ed25519"]:  # Ether way strict checking is on!
+        save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
+    cmd.extend(args)
     print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
+
+
+def command_upload_code(*args):
+    coderoot = code_root()
+    upload_dest = []
+    if len(args) == 0:
+        print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
+        return
+    sshables, known_hosts = fetch_sshables()
+    save_known_hosts(known_hosts)
+    for j in args:
+        for rec in sshables:
+            import fnmatch
+            if fnmatch.fnmatch(rec["name"], j):
+                upload_dest.append(rec)
+    print_if_appropriate("uploading code to:")
+    print_table(upload_dest, omit_for_brevity="ed25519")
+    for rec in upload_dest:
+        # "-u" update based on modification time
+        # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
+        # "--delete" -- nice to have, but has unexpected effects
+        ssh  = "ssh -p %i" % rec["ssh_port"]
+        if rec["ed25519"]:
+            ssh += " -o UserKnownHostsFile=%s" % known_hosts_file
+        cmd = [
+            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"user@{rec['ssh_addr']}:code/", "--filter=:- .gitignore", "--exclude=.git",
+            "-e", ssh,
+            ]
+        r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
+        assert r==0, r
 
 
 def command_nodes():
@@ -368,7 +380,7 @@ def command_prices():
     print(resp)
 
 
-def cli_command(command, *args, **kwargs):
+def cli_command(command, *args):
     if command == "free":
         command_free()
 
@@ -379,7 +391,7 @@ def cli_command(command, *args, **kwargs):
         command_logout()
 
     elif command == "reserve":
-        command_reserve(*args, **kwargs)
+        command_reserve(*args)
 
     elif command in ["list", "jobs"]:
         command_jobs()
@@ -388,7 +400,7 @@ def cli_command(command, *args, **kwargs):
         command_delete(*args)
 
     elif command == "upload-code":
-        command_upload_code(*args, **kwargs)
+        command_upload_code(*args)
 
     elif command == "nodes":
         command_nodes()
