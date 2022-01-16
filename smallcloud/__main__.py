@@ -232,6 +232,9 @@ def command_jobs():
         print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve a5000 4 myexperiment00", attrs=["bold"]))
         return
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
+    hidden = len(resp) - len(finished_less_than_day_ago)
+    if hidden:
+        print(termcolor.colored("finished more than a day ago: %i" % hidden, "white"))
     print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice", "ed25519"])
 
 
@@ -441,7 +444,9 @@ if __name__=="__main__":
         printhl("s list")
         print("      Prints your jobs, working and finished.")
         printhl("s reserve <gpu_type> <gpu_count> <job_name>")
-        print("      Reserve GPUs, start the job. If the job cannot start immediately, it will be queued.")
+        print("      Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64.")
+        print("      Starting from 16, multiple VMs will be launched.")
+        print("      If the job cannot start immediately, it will be queued.")
         printhl("s ssh <job_name> [<any-ssh-args>]")
         print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
         printhl("s ssh-keygen")
