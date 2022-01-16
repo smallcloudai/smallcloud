@@ -3,7 +3,7 @@ import urllib, ssl
 import urllib.request
 import urllib.error
 
- # try click
+ # Read this source code, nice and clean!
 
 
 v1_url = "https://www.smallcloud.ai/v1/"
@@ -16,10 +16,9 @@ if os.environ.get("local"):
 config_dir = os.path.expanduser("~/.config/smallcloud.ai")
 config_file = config_dir + "/cli_config"
 ssh_rsa_id = config_dir + "/dedicated_ssh_rsa_id"
+known_hosts_file = config_dir + "/known_hosts"
 config_username = None
 config_secret_api_key = None
-
-
 global_option_json = False
 
 
@@ -233,7 +232,7 @@ def command_jobs():
         print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve a5000 4 myexperiment00", attrs=["bold"]))
         return
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
-    print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice"])
+    print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice", "ed25519"])
 
 
 def command_delete(*task_names):
@@ -270,25 +269,29 @@ def command_upload_code(*args, **kwargs):
         r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         assert r==0, r
 
-def command_ssh(*args, **kwargs):
-    user_at_name = args[0]   # user@computer_name
+
+def command_ssh(user_at_name, *args):
     if "@" not in user_at_name:
-        user = "user"
         computer_name = user_at_name
+        user = "user"
     else:
         user, computer_name = user_at_name.split("@")
     sshables = fetch_json(v1_url + "list-ssh-able", headers=account_and_secret_key())
     closest_match = None
     closest_match_dist = 1e10
     import difflib
+    right_rec = None
+    known_hosts = []
     for rec in sshables:
         if rec["name"] == computer_name:
-            break
+            right_rec = rec
+        if rec["ed25519"]:
+            known_hosts.append("[%s]:%i %s" % (rec['ssh_addr'], rec['ssh_port'], rec['ed25519']))
         dist = difflib.SequenceMatcher(None, rec["name"], computer_name).ratio()
         if dist > 0.8 and dist < closest_match_dist:
             closest_match = rec
             closest_match_dist = dist
-    else:
+    if right_rec is None:
         print_table(sshables)
         print("Computer \"%s\" wasn't found." % computer_name)
         if closest_match is not None:
@@ -296,12 +299,15 @@ def command_ssh(*args, **kwargs):
         return
     cmd = [
         "ssh",
-        "%s@%s" % (user, rec['ssh_addr']),
-        "-p", "%i" % rec['ssh_port'],
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        ]
-    cmd.extend(args[1:])
+        "%s@%s" % (user, right_rec['ssh_addr']),
+        "-p", "%i" % right_rec['ssh_port'],
+    ]
+    if rec["ed25519"]:
+        # Ether way strict checking is on!
+        with open(known_hosts_file, "wt") as f:
+            f.write("\n".join(known_hosts) + "\n")
+        os.chmod(known_hosts_file, 0o600)
+        cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
     print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
@@ -317,7 +323,7 @@ def command_ssh_keygen(*args):
         os.unlink(ssh_rsa_id)
     except FileNotFoundError:
         pass
-    r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", ""])
+    r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", "", *args])
     assert r==0, r
     resp = fetch_json(
         v1_url + "ssh-public-key-upload",
@@ -328,7 +334,7 @@ def command_ssh_keygen(*args):
 
 def command_ssh_upload(*args):
     if len(args) != 1:
-        print("please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, otherwise use \"s ssh-keygen\" to create a dedicated key)")
+        print("please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, normally you use \"s ssh-keygen\" to create a dedicated key)")
         quit(1)
     resp = fetch_json(
         v1_url + "ssh-public-key-upload",
@@ -378,17 +384,17 @@ def cli_command(command, *args, **kwargs):
     elif command in ["delete", "remove"]:
         command_delete(*args)
 
-    elif command == "ssh":
-        command_ssh(*args, **kwargs)
-
     elif command == "upload-code":
         command_upload_code(*args, **kwargs)
 
     elif command == "nodes":
         command_nodes()
 
+    elif command == "ssh":
+        command_ssh(*args)
+
     elif command == "ssh-keygen":
-        command_ssh_keygen()
+        command_ssh_keygen(*args)
 
     elif command == "ssh-upload":
         command_ssh_upload(*args)
@@ -422,6 +428,9 @@ if __name__=="__main__":
     if len(sys.argv) < 2:
         def printhl(s):
             print(termcolor.colored(s, attrs=["bold"]))
+        print("This is a command line tool to use Small Magellanic Cloud AI Ltd services.")
+        print("Homepage for this tool:")
+        print("    https://github.com/smallcloudai/smallcloud")
         print("Commands:")
         printhl("s free")
         print("      Print number of free GPUs, works without login.")
@@ -447,4 +456,4 @@ if __name__=="__main__":
         print("      CLI analogs of webpages to monitor your balance and billing.")
         quit(0)
     read_config_file()
-    cli_command(sys.argv[1], sys.argv[1:])
+    cli_command(sys.argv[1], *sys.argv[2:])
