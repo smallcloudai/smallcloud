@@ -20,8 +20,6 @@ config_username = None
 config_secret_api_key = None
 
 
-global_option_dryrun = False
-global_option_verbose = False
 global_option_json = False
 
 
@@ -47,6 +45,8 @@ def fetch_json(url, post_json=None, get_params=None, headers={}):
         quit(1)
     try:
         j = json.loads(result)
+        # if isinstance(j, str):
+        #     j = json.loads(j)
     except ValueError:
         print("response from server is not a json")
         print(result.decode("utf-8"))
@@ -57,14 +57,18 @@ def fetch_json(url, post_json=None, get_params=None, headers={}):
     return j
 
 
-def run(cmd, dry=False, verbose=None, stdout=None, stderr=None, **kwargs):
+def run(cmd, stdout=None, stderr=None, **kwargs):
+    # This function is used for rsync and ssh-keygen
+    # To debug, use:
+    #  verbose=1 dry=1 s command
     verbose = int(os.environ.get("verbose", "0"))
     if not verbose:
         stdout = subprocess.DEVNULL if stdout is None else stdout
     stderr = stderr or subprocess.PIPE
     if not global_option_json:
         print(" ".join(cmd))
-    if global_option_dryrun:
+    dry = int(os.environ.get("dry", "0"))
+    if dry:
         return 0
     completed_process = subprocess.run(cmd, stdout=stdout, stderr=stderr, **kwargs)
     if completed_process.returncode != 0:
@@ -142,8 +146,12 @@ def code_root():
 def read_config_file():
     if not os.path.exists(config_file):
         return
-    with open(config_file, "r") as f:
-        config = json.loads(f.read())
+    try:
+        with open(config_file, "r") as f:
+            config = json.loads(f.read())
+    except ValueError:
+        print("Empty or invalid config file: %s (delete it to relogin)" % config_file)
+        quit(1)
     global config_username, config_secret_api_key
     if "expires_ts" in config and time.time() > config["expires_ts"] > 0:
         print("Your login credentials are expired, please re-login.")
@@ -154,9 +162,9 @@ def read_config_file():
 
 def command_login(*args):
     assert len(args) <= 1
-    print("Please open this link in your browser:")
+    print("Please open this link in your browser:\n")
     print(termcolor.colored(v1_url.replace("/v1/", "/cli-login"), attrs=["bold"]))
-    ticket = input("and copy-paste a response here: ")
+    ticket = input("\nand copy-paste a response here: ")
     resp = fetch_json(v1_url + "cli-login-response", get_params={"ticket": ticket})
     if resp["retcode"] != "OK":
         pretty_print_response(resp)
@@ -164,13 +172,13 @@ def command_login(*args):
     os.makedirs(config_dir, exist_ok=True)
     with open(config_file, "w") as f:
         f.write(json.dumps({
-            "account_name": resp["account_name"],
-            "expires_ts": resp["expires_ts"],
+            "account_name": resp["account"],
+            "expires_ts": (resp["expires_ts"] if "expires_ts" in resp else 365*24*60*60 + time.time()),
             "secret_api_key": resp["secret_api_key"],
             }, indent=4))
     os.chmod(config_file, 0o600)
-    print("Logged in user name: %s" % resp["account_name"])
-    print("Login credentials were stored in %s." % config_file)
+    print("Logged in user name: %s" % resp["account"])
+    print("Account name and the Secret API Key were stored in %s" % config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
     print(termcolor.colored("s free", attrs=["bold"]))
@@ -263,9 +271,12 @@ def command_upload_code(*args, **kwargs):
         assert r==0, r
 
 def command_ssh(*args, **kwargs):
-    assert len(args) == 1, "can only ssh to one server at a time"
-    user = kwargs.get("ssh_user", "user")
-    computer_name = args[0]
+    user_at_name = args[0]   # user@computer_name
+    if "@" not in user_at_name:
+        user = "user"
+        computer_name = user_at_name
+    else:
+        user, computer_name = user_at_name.split("@")
     sshables = fetch_json(v1_url + "list-ssh-able", headers=account_and_secret_key())
     closest_match = None
     closest_match_dist = 1e10
@@ -290,6 +301,7 @@ def command_ssh(*args, **kwargs):
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
         ]
+    cmd.extend(args[1:])
     print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
@@ -404,19 +416,35 @@ def cli_command(command, *args, **kwargs):
 
 
 if __name__=="__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--json", action="store_true", help="normally output tables are printed using pandas, switch json output")
-    parser.add_argument("--dry", action="store_true", help="do not run commands, just print them")
-    parser.add_argument("--verbose", action="store_true", help="show stdout of any subcommands")
-    parser.add_argument("--ssh-user", help="specify user name for 'ssh' and 'upload-code', default user name is 'user'")
-    parser.add_argument("command", nargs="+", help="one of: free, list, ssh, upload-code, tail")
-    args = parser.parse_args()
-    global_option_dryrun = args.dry
-    global_option_json = args.json
-    global_option_verbose = args.verbose
+    if "--json" in sys.argv:
+        global_option_json = True
+        sys.argv.remove("--json")
+    if len(sys.argv) < 2:
+        def printhl(s):
+            print(termcolor.colored(s, attrs=["bold"]))
+        print("Commands:")
+        printhl("s free")
+        print("      Print number of free GPUs, works without login.")
+        printhl("s prices")
+        print("      Print prices, works without login.")
+        printhl("s login")
+        print("      Interactive login using your web browser.")
+        printhl("s list")
+        print("      Prints your jobs, working and finished.")
+        printhl("s reserve <gpu_type> <gpu_count> <job_name>")
+        print("      Reserve GPUs, start the job. If the job cannot start immediately, you will be asked if it should be queued.")
+        printhl("s ssh <job_name> [<any-ssh-args>]")
+        print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
+        printhl("s ssh-keygen")
+        print("      Generate a new SSH keypair and upload the public part.")
+        printhl("s ssh-upload")
+        print("      If you prefer, you can upload this computer's public key.")
+        printhl("s delete <job_name>")
+        print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
+        printhl("s billing")
+        printhl("s billing-detailed")
+        printhl("s money")
+        print("      CLI analogs of webpages to monitor your balance and billing.")
+        quit(0)
     read_config_file()
-    kwargs = {}
-    if args.ssh_user:
-        kwargs["ssh_user"] = args.ssh_user
-    cli_command(*args.command, **kwargs)
+    cli_command(sys.argv[1], sys.argv[1:])
