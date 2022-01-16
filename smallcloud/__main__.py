@@ -298,6 +298,49 @@ def command_ssh(user_at_name, *args):
     os.execv("/usr/bin/ssh", cmd)
 
 
+def command_scp(*args):
+    remote_at = None
+    for i in range(len(args)):
+        if args[i].find(":") != -1:
+            print("Re-writing \"%s\" as a remote location" % args[i])
+            remote_at = i
+            break
+    if remote_at is None:
+        print("Not clear which parameter refers to a remote location, this is detected by presence of a colon \":\"")
+        print("Examples:")
+        print("s scp local_file1 job:remote_file")
+        print("s scp \"user@job:remote_file*.txt\" local_folder/")
+        quit(1)
+    remote_location = args[remote_at]
+    if "@" in remote_location:
+        user, computer_name_colon_file = remote_location.split("@")
+    else:
+        user = "user"
+        computer_name_colon_file = remote_location
+    computer_name, path = computer_name_colon_file.split(":")
+    right_rec = None
+    sshables, known_hosts = fetch_sshables()
+    for rec in sshables:
+        if rec["name"] == computer_name:
+            right_rec = rec
+    if right_rec is None:
+        print_table(sshables)
+        print("Computer \"%s\" wasn't found." % computer_name)
+        quit(1)
+    cmd = ["scp", "-P", "%i" % right_rec['ssh_port']]
+    if right_rec["ed25519"]:
+        save_known_hosts(known_hosts)
+        cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
+    for i, a in enumerate(args):
+        if i == remote_at:
+            cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
+        else:
+            cmd.append(a)
+    print(" ".join(cmd))
+    # this replaces the current process with scp
+    os.execv("/usr/bin/scp", cmd)
+
+
 def command_upload_code(*args):
     coderoot = code_root()
     upload_dest = []
@@ -407,6 +450,9 @@ def cli_command(command, *args):
 
     elif command == "ssh":
         command_ssh(*args)
+
+    elif command == "scp":
+        command_scp(*args)
 
     elif command == "ssh-keygen":
         command_ssh_keygen(*args)
