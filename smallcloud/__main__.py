@@ -72,25 +72,21 @@ def fetch_json(url, post_json=None, get_params=None, headers={}):
         print_if_appropriate("%0.2fs %s" % (t1 - t0, url))
     except urllib.error.URLError:
         print("ERROR %s" % (url))
-        import traceback
-        traceback.print_exc()
-        quit(1)
+        raise
     try:
         j = json.loads(result)
-        # if isinstance(j, str):
-        #     j = json.loads(j)
     except ValueError:
-        print("response from server is not a json")
+        print("Response from server is not a json:")
         print(result.decode("utf-8"))
         quit(1)
     if "retcode" in j and j["retcode"] != "OK":
-        print(termcolor.colored("ERROR", "red"), j["human_readable_message"])
+        print(termcolor.colored(j["retcode"], "red"), j["human_readable_message"])
         quit(1)
     return j
 
 
 def run(cmd, stdout=None, stderr=None, **kwargs):
-    # This function is used for rsync and ssh-keygen
+    # This function runs 'rsync' and 'ssh-keygen'
     # To debug, use:
     #  verbose=1 dry=1 s command
     verbose = int(os.environ.get("verbose", "0"))
@@ -122,15 +118,14 @@ def print_table(resp, omit_for_brevity=[]):
     if len(resp) == 0:
         print("empty result")
         return
-    flatlist = None
     if isinstance(resp, dict):
         keys = sorted(resp.keys())
         assert isinstance(resp[keys[0]], dict)
         flatlist = [resp[k] for k in keys]
     elif isinstance(resp, list):
         flatlist = resp
-    elif isinstance(resp, str):
-        print("server returned:\n%s" % str(resp))
+    else:
+        print("Server returned:\n%s" % str(resp))
         quit(1)
     def print_datetime(ts):
         if ts==0: return "-"
@@ -140,17 +135,16 @@ def print_table(resp, omit_for_brevity=[]):
         if full.startswith(time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))):
             return time.strftime("%a %H:%M:%S", time.localtime(ts))
         return full
-    if flatlist is not None:
-        import pandas   # is slow, don't import at the top of the file.
-        df = pandas.DataFrame()
-        for column in flatlist[0].keys():
-            if column in omit_for_brevity:
-                continue
-            if not column.startswith("ts_") and not column.endswith("_ts"):
-                df[column.upper()] = [x[column] for x in flatlist]
-            else:
-                df[column.upper()] = [print_datetime(x[column]) for x in flatlist]
-        print(df)
+    import pandas   # is slow, don't import at the top of the file.
+    df = pandas.DataFrame()
+    for column in flatlist[0].keys():
+        if column in omit_for_brevity:
+            continue
+        if not column.startswith("ts_") and not column.endswith("_ts"):
+            df[column.upper()] = [x[column] for x in flatlist]
+        else:
+            df[column.upper()] = [print_datetime(x[column]) for x in flatlist]
+    print(df)
 
 
 def pretty_print_response(json):
@@ -198,9 +192,6 @@ def command_login(*args):
     print(termcolor.colored(v1_url.replace("/v1/", "/cli-login"), attrs=["bold"]))
     ticket = input("\nand copy-paste a response here: ")
     resp = fetch_json(v1_url + "cli-login-response", get_params={"ticket": ticket})
-    if resp["retcode"] != "OK":
-        pretty_print_response(resp)
-        quit(1)
     os.makedirs(config_dir, exist_ok=True)
     with open(config_file, "w") as f:
         f.write(json.dumps({
@@ -240,7 +231,7 @@ def account_and_secret_key():
     }
 
 
-def command_free(*args):
+def command_free():
     free_json = fetch_json(v1_url + "free", headers=account_and_secret_key())
     print_table(free_json)
 
