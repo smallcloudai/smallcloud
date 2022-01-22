@@ -1,7 +1,7 @@
-Small Magellanic Cloud
-======================
+Small Magellanic Cloud CLI Tool
+===============================
 
-This is a command line tools to access smallcloud.ai services. It is a command line tool and a Python library.
+It is a command line tool and a Python library to access smallcloud.ai services.
 
 Run your GPU-intensive tasks in a new way:
 

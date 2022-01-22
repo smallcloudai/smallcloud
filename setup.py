@@ -3,8 +3,11 @@ from setuptools import setup
 setup(
     name="smallcloud",
     py_modules=["smallcloud"],
-    version="0.1.0",
+    packages=["smallcloud"],
+    version="0.1.1",
     url="https://github.com/smallcloudai/smallcloud",
+    summary="Command line tool to access smallcloud.ai services",
+    description="Run your GPU-intensive tasks using this command line tool / Python library",
     license='GNU GPLv3',
     install_requires=[""],
     author="Small Magellanic Cloud AI Ltd.",
