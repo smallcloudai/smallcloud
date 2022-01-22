@@ -515,8 +515,9 @@ def cli_command(command, *args):
         quit(1)
 
 
-if __name__=="__main__":
+def main():
     if "--json" in sys.argv:
+        global global_option_json
         global_option_json = True
         sys.argv.remove("--json")
     if len(sys.argv) < 2:
@@ -524,3 +525,7 @@ if __name__=="__main__":
         quit(0)
     read_config_file()
     cli_command(sys.argv[1], *sys.argv[2:])
+
+
+if __name__=="__main__":
+    main()
