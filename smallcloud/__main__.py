@@ -22,6 +22,39 @@ config_secret_api_key = None
 global_option_json = False
 
 
+def print_help():
+    def printhl(s):
+        print(termcolor.colored(s, attrs=["bold"]))
+    print("This is a command line tool to use Small Magellanic Cloud AI Ltd services.")
+    print("Homepage for this tool:")
+    print("    https://github.com/smallcloudai/smallcloud")
+    print("Commands:")
+    printhl("s free")
+    print("      Print number of free GPUs, works without login.")
+    printhl("s prices")
+    print("      Print prices, works without login.")
+    printhl("s login")
+    print("      Interactive login using your web browser.")
+    printhl("s list")
+    print("      Prints your jobs, working and finished.")
+    printhl("s reserve <gpu_type> <gpu_count> <job_name>")
+    print("      Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64.")
+    print("      Starting from 16, multiple VMs will be launched.")
+    print("      If the job cannot start immediately, it will be queued.")
+    printhl("s ssh <job_name> [<any-ssh-args>]")
+    print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
+    printhl("s ssh-keygen")
+    print("      Generate a new SSH keypair and upload the public part.")
+    printhl("s ssh-upload")
+    print("      If you prefer, you can upload this computer's public key.")
+    printhl("s delete <job_name>")
+    print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
+    printhl("s billing")
+    printhl("s billing-detailed")
+    printhl("s money")
+    print("      CLI analogs of webpages to monitor your balance and billing.")
+
+
 def fetch_json(url, post_json=None, get_params=None, headers={}):
     t0 = time.time()
     try:
@@ -171,12 +204,12 @@ def command_login(*args):
     os.makedirs(config_dir, exist_ok=True)
     with open(config_file, "w") as f:
         f.write(json.dumps({
-            "account_name": resp["account"],
+            "account_name": resp["account_name"],
             "expires_ts": (resp["expires_ts"] if "expires_ts" in resp else 365*24*60*60 + time.time()),
             "secret_api_key": resp["secret_api_key"],
             }, indent=4))
     os.chmod(config_file, 0o600)
-    print("Logged in user name: %s" % resp["account"])
+    print("Logged in user name: %s" % resp["account_name"])
     print("Account name and the Secret API Key were stored in %s" % config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
@@ -343,20 +376,27 @@ def command_scp(*args):
 
 def command_upload_code(*args):
     coderoot = code_root()
-    upload_dest = []
     if len(args) == 0:
         print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
         return
     sshables, known_hosts = fetch_sshables()
     save_known_hosts(known_hosts)
+    upload_dest = []
+    upload_user = []
     for j in args:
+        if "@" in j:
+            user, computer_name = j.split("@")
+        else:
+            user = "user"
+            computer_name = j
         for rec in sshables:
             import fnmatch
-            if fnmatch.fnmatch(rec["name"], j):
+            if fnmatch.fnmatch(rec["name"], computer_name):
                 upload_dest.append(rec)
+                upload_user.append(user)
     print_if_appropriate("uploading code to:")
     print_table(upload_dest, omit_for_brevity="ed25519")
-    for rec in upload_dest:
+    for rec, user in zip(upload_dest, upload_user):
         # "-u" update based on modification time
         # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
         # "--delete" -- nice to have, but has unexpected effects
@@ -364,7 +404,7 @@ def command_upload_code(*args):
         if rec["ed25519"]:
             ssh += " -o UserKnownHostsFile=%s" % known_hosts_file
         cmd = [
-            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"user@{rec['ssh_addr']}:code/", "--filter=:- .gitignore", "--exclude=.git",
+            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"{user}@{rec['ssh_addr']}:code/", "--filter=:- .gitignore", "--exclude=.git",
             "-e", ssh,
             ]
         r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
@@ -479,7 +519,9 @@ def cli_command(command, *args):
     #     print("tail!")
 
     else:
-        assert 0, "unknown command '%s'" % command
+        print_help()
+        print("Unknown command:", command)
+        quit(1)
 
 
 if __name__=="__main__":
@@ -487,36 +529,7 @@ if __name__=="__main__":
         global_option_json = True
         sys.argv.remove("--json")
     if len(sys.argv) < 2:
-        def printhl(s):
-            print(termcolor.colored(s, attrs=["bold"]))
-        print("This is a command line tool to use Small Magellanic Cloud AI Ltd services.")
-        print("Homepage for this tool:")
-        print("    https://github.com/smallcloudai/smallcloud")
-        print("Commands:")
-        printhl("s free")
-        print("      Print number of free GPUs, works without login.")
-        printhl("s prices")
-        print("      Print prices, works without login.")
-        printhl("s login")
-        print("      Interactive login using your web browser.")
-        printhl("s list")
-        print("      Prints your jobs, working and finished.")
-        printhl("s reserve <gpu_type> <gpu_count> <job_name>")
-        print("      Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64.")
-        print("      Starting from 16, multiple VMs will be launched.")
-        print("      If the job cannot start immediately, it will be queued.")
-        printhl("s ssh <job_name> [<any-ssh-args>]")
-        print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
-        printhl("s ssh-keygen")
-        print("      Generate a new SSH keypair and upload the public part.")
-        printhl("s ssh-upload")
-        print("      If you prefer, you can upload this computer's public key.")
-        printhl("s delete <job_name>")
-        print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
-        printhl("s billing")
-        printhl("s billing-detailed")
-        printhl("s money")
-        print("      CLI analogs of webpages to monitor your balance and billing.")
+        print_help()
         quit(0)
     read_config_file()
     cli_command(sys.argv[1], *sys.argv[2:])
