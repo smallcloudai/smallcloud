@@ -9,7 +9,10 @@ setup(
     summary="Command line tool to access smallcloud.ai services",
     description="Run your GPU-intensive tasks using this command line tool / Python library",
     license='GNU GPLv3',
-    install_requires=[""],
+    install_requires=[
+        "termcolor",
+        "pandas",
+    ],
     author="Small Magellanic Cloud AI Ltd.",
     author_email="cli-tool@smallcloud.tech",
     entry_points={
