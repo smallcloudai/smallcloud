@@ -116,7 +116,7 @@ def print_table(resp, omit_for_brevity=[]):
         print(json.dumps(resp, indent=4))
         return
     if len(resp) == 0:
-        print("empty result")
+        print("Empty result")
         return
     if isinstance(resp, dict):
         keys = sorted(resp.keys())
@@ -165,7 +165,7 @@ def code_root():
             assert 0, "cannot find code root, started from %s" % __file__
         p = os.path.dirname(p)
     p += "/"  # that makes rsync happy
-    print_if_appropriate("code root detected at: %s" % p)
+    print_if_appropriate("Code root detected at: %s" % p)
     return p
 
 
@@ -200,7 +200,7 @@ def command_login(*args):
             "secret_api_key": resp["secret_api_key"],
             }, indent=4))
     os.chmod(config_file, 0o600)
-    print("Logged in user name: %s" % resp["account_name"])
+    print("\Login successful: %s" % resp["account_name"])
     print("Account name and the Secret API Key were stored in %s" % config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
@@ -210,15 +210,15 @@ def command_login(*args):
 
 def command_logout():
     if not config_username:
-        print("you are not logged in")
+        print("You are not logged in")
         return
     os.remove(config_file)
-    print("logged out")
+    print("Logged out")
 
 
 def make_sure_have_login():
     if not config_username:
-        print("please login to complete this operation")
+        print("Please login to complete this operation")
         quit(1)
 
 
@@ -238,7 +238,7 @@ def command_free():
 
 def command_reserve(gpu_type, gpu_min, task_name):
     make_sure_have_login()
-    print("reserving %s*%s" % (gpu_type, gpu_min))
+    print("Reserving %s*%s" % (gpu_type, gpu_min))
     post_json = {
         "task_name": task_name,
         "gpu_type": gpu_type,
@@ -316,6 +316,7 @@ def command_ssh(user_at_name, *args):
     if right_rec["ed25519"]:  # Ether way strict checking is on!
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
+        add_ssh_identity_if_exists(cmd)
     cmd.extend(args)
     print(" ".join(cmd))
     # this replaces the current process with ssh
@@ -355,6 +356,7 @@ def command_scp(*args):
     if right_rec["ed25519"]:
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
+        add_ssh_identity_if_exists(cmd)
     for i, a in enumerate(args):
         if i == remote_at:
             cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
@@ -369,7 +371,7 @@ def command_upload_code(*args):
     coderoot = code_root()
     if len(args) == 0:
         print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
-        return
+        quit(1)
     sshables, known_hosts = fetch_sshables()
     save_known_hosts(known_hosts)
     upload_dest = []
@@ -385,18 +387,22 @@ def command_upload_code(*args):
             if fnmatch.fnmatch(rec["name"], computer_name):
                 upload_dest.append(rec)
                 upload_user.append(user)
-    print_if_appropriate("uploading code to:")
+    print_if_appropriate("Uploading code to:")
     print_table(upload_dest, omit_for_brevity="ed25519")
     for rec, user in zip(upload_dest, upload_user):
         # "-u" update based on modification time
         # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
         # "--delete" -- nice to have, but has unexpected effects
-        ssh  = "ssh -p %i" % rec["ssh_port"]
+        ssh_cmd = [
+            "ssh",
+            "-p", "%i" % rec["ssh_port"],
+        ]
         if rec["ed25519"]:
-            ssh += " -o UserKnownHostsFile=%s" % known_hosts_file
+            add_ssh_identity_if_exists(ssh_cmd)
+            ssh_cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
         cmd = [
             "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"{user}@{rec['ssh_addr']}:code/", "--filter=:- .gitignore", "--exclude=.git",
-            "-e", ssh,
+            "-e", " ".join(ssh_cmd),
             ]
         r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         assert r==0, r
@@ -430,6 +436,11 @@ def command_ssh_upload(*args):
         post_json={"ssh_public_key": open(os.path.expanduser(args[0])).read()},
         headers=account_and_secret_key())
     pretty_print_response(resp)
+
+
+def add_ssh_identity_if_exists(ssh_cmdline):
+    if os.path.exists(ssh_rsa_id):
+        ssh_cmdline.extend(["-i", ssh_rsa_id])
 
 
 def command_promo(*args):
