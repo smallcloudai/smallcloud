@@ -414,6 +414,11 @@ def command_nodes():
 
 
 def command_ssh_keygen(*args):
+    jobs_for_warning = fetch_json(v1_url + "jobs", headers=account_and_secret_key())
+    jobs_running = [x for x in jobs_for_warning if x["ts_finished"] == 0]
+    if len(jobs_running) > 0:
+        print(f"You have {len(jobs_running)} jobs running. All ssh-based commands from this computer will start to use a new \"-i {ssh_rsa_id}\" identity file, this might prevent you from logging in to these running machines.")
+        quit(1)
     try:
         os.unlink(ssh_rsa_id)
     except FileNotFoundError:
