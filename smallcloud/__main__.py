@@ -1,5 +1,5 @@
 import os, sys, json, time, subprocess, termcolor
-import urllib, ssl
+import urllib
 import urllib.request
 import urllib.error
 
@@ -22,9 +22,11 @@ config_secret_api_key = None
 global_option_json = False
 
 
+def printhl(s):
+    print(termcolor.colored(s, attrs=["bold"]))
+
+
 def print_help():
-    def printhl(s):
-        print(termcolor.colored(s, attrs=["bold"]))
     print("This is a command line tool to use Small Magellanic Cloud AI Ltd services.")
     print("Homepage for this tool:")
     print("    https://github.com/smallcloudai/smallcloud")
@@ -41,14 +43,20 @@ def print_help():
     print("      Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64.")
     print("      Starting from 16, multiple VMs will be launched.")
     print("      If the job cannot start immediately, it will be queued.")
+    printhl("s delete <job_name>")
+    print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
     printhl("s ssh <job_name> [<any-ssh-args>]")
     print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
+    printhl("s scp <local_file> <job_name>:<remote_file> [<any-scp-args>]")
+    print("      Copy a file.")
+    printhl("s upload-code <job_name>")
+    print("      Upload your source code using rsync.")
+    print("      Use \"experiment05*\" syntax to upload to several jobs.")
+    print("      Remote destination is hardcoded as \"/home/user/code/\".")
     printhl("s ssh-keygen")
     print("      Generate a new SSH keypair and upload the public part.")
     printhl("s ssh-upload")
     print("      If you prefer, you can upload this computer's public key.")
-    printhl("s delete <job_name>")
-    print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
     printhl("s billing")
     printhl("s billing-detailed")
     printhl("s money")
@@ -157,12 +165,16 @@ def pretty_print_response(json):
 
 
 def code_root():
-    p = os.path.dirname(__file__)
+    start_dir = os.getcwd()
+    p = start_dir
     while 1:
-        if os.path.exists(p + "/smallcloud/smallcloud/__main__.py"):
+        if os.path.exists(p + "/.smc_code_root"):
             break
         if p == os.path.dirname(p):
-            assert 0, "cannot find code root, started from %s" % __file__
+            print("Cannot find code root, searched the current directory '%s' and up." % start_dir)
+            print("Please create a file '.smc_code_root' in the directory you want to upload to your VM, for example:")
+            printhl(f"touch {start_dir}/.smc_code_root")
+            quit(0)
         p = os.path.dirname(p)
     p += "/"  # that makes rsync happy
     print_if_appropriate("Code root detected at: %s" % p)
@@ -236,14 +248,26 @@ def command_free():
     print_table(free_json)
 
 
-def command_reserve(gpu_type, gpu_min, task_name):
+def command_reserve(*args):
     make_sure_have_login()
-    print("Reserving %s*%s" % (gpu_type, gpu_min))
+    # The only nontrivial command with options at this point:
+    import argparse
+    parser = argparse.ArgumentParser(description="Reserve a GPU")
+    subparsers = parser.add_subparsers()
+    parser_reserve = subparsers.add_parser("reserve")
+    parser_reserve.add_argument("gpu_type", help="GPU to reserve")
+    parser_reserve.add_argument("count", type=int, help="Number of GPUs")
+    parser_reserve.add_argument("job_name", help="Name of the experiment")
+    parser_reserve.add_argument("--os", help="Operating system")
+    args = parser.parse_args(("reserve",) + args)
+    gpu_min = args.count
     post_json = {
-        "task_name": task_name,
-        "gpu_type": gpu_type,
-        "gpu_min": gpu_min,
+        "task_name": args.job_name,
+        "gpu_type": args.gpu_type,
+        "gpu_min": int(gpu_min),
         }
+    if args.os:
+        post_json["tenant_image"] = args.os
     ret_json = fetch_json(v1_url + "reserve", post_json, headers=account_and_secret_key())
     pretty_print_response(ret_json)
 
