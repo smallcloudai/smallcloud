@@ -26,43 +26,6 @@ def printhl(s):
     print(termcolor.colored(s, attrs=["bold"]))
 
 
-def print_help():
-    print("This is a command line tool to use Small Magellanic Cloud AI Ltd services.")
-    print("Homepage for this tool:")
-    print("    https://github.com/smallcloudai/smallcloud")
-    print("Commands:")
-    printhl("s free")
-    print("      Print number of free GPUs, works without login.")
-    printhl("s prices")
-    print("      Print prices, works without login.")
-    printhl("s login")
-    print("      Interactive login using your web browser.")
-    printhl("s list")
-    print("      Prints your jobs, working and finished.")
-    printhl("s reserve <gpu_type> <gpu_count> <job_name>")
-    print("      Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64.")
-    print("      Starting from 16, multiple VMs will be launched.")
-    print("      If the job cannot start immediately, it will be queued.")
-    printhl("s delete <job_name>")
-    print("      Delete the job. Use \"experiment05*\" syntax to delete several jobs.")
-    printhl("s ssh <job_name> [<any-ssh-args>]")
-    print("      SSH into the job. By default the user is \"user\". You can use \"otheruser@jobname\" syntax if you created more users.")
-    printhl("s scp <local_file> <job_name>:<remote_file> [<any-scp-args>]")
-    print("      Copy a file.")
-    printhl("s upload-code <job_name>")
-    print("      Upload your source code using rsync.")
-    print("      Use \"experiment05*\" syntax to upload to several jobs.")
-    print("      Remote destination is hardcoded as \"/home/user/code/\".")
-    printhl("s ssh-keygen")
-    print("      Generate a new SSH keypair and upload the public part.")
-    printhl("s ssh-upload")
-    print("      If you prefer, you can upload this computer's public key.")
-    printhl("s billing")
-    printhl("s billing-detailed")
-    printhl("s money")
-    print("      CLI analogs of webpages to monitor your balance and billing.")
-
-
 def fetch_json(url, post_json=None, get_params=None, headers={}):
     t0 = time.time()
     try:
@@ -198,8 +161,7 @@ def read_config_file():
         config_secret_api_key = config["secret_api_key"]
 
 
-def command_login(*args):
-    assert len(args) <= 1
+def command_login():
     print("Please open this link in your browser:\n")
     print(termcolor.colored(v1_url.replace("/v1/", "/cli-login"), attrs=["bold"]))
     ticket = input("\nand copy-paste a response here: ")
@@ -212,7 +174,7 @@ def command_login(*args):
             "secret_api_key": resp["secret_api_key"],
             }, indent=4))
     os.chmod(config_file, 0o600)
-    print("\Login successful: %s" % resp["account_name"])
+    print("Login successful: %s" % resp["account_name"])
     print("Account name and the Secret API Key were stored in %s" % config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))
@@ -248,18 +210,8 @@ def command_free():
     print_table(free_json)
 
 
-def command_reserve(*args):
+def command_reserve(args):
     make_sure_have_login()
-    # The only nontrivial command with options at this point:
-    import argparse
-    parser = argparse.ArgumentParser(description="Reserve a GPU")
-    subparsers = parser.add_subparsers()
-    parser_reserve = subparsers.add_parser("reserve")
-    parser_reserve.add_argument("gpu_type", help="GPU to reserve")
-    parser_reserve.add_argument("count", type=int, help="Number of GPUs")
-    parser_reserve.add_argument("job_name", help="Name of the experiment")
-    parser_reserve.add_argument("--os", help="Operating system")
-    args = parser.parse_args(("reserve",) + args)
     gpu_min = args.count
     post_json = {
         "task_name": args.job_name,
@@ -286,9 +238,9 @@ def command_jobs():
     print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice", "ed25519"])
 
 
-def command_delete(*task_names):
+def command_delete(args):
     make_sure_have_login()
-    for tname in task_names:
+    for tname in args.job_name:
         resp = fetch_json(v1_url + "delete", get_params={"task_name": tname}, headers=account_and_secret_key())
         pretty_print_response(resp)
 
@@ -308,12 +260,12 @@ def save_known_hosts(known_hosts):
     os.chmod(known_hosts_file, 0o600)
 
 
-def command_ssh(user_at_name, *args):
-    if "@" not in user_at_name:
-        computer_name = user_at_name
+def command_ssh(args):
+    if "@" not in args.job_name:
+        computer_name = args.job_name
         user = "user"
     else:
-        user, computer_name = user_at_name.split("@")
+        user, computer_name = args.job_name.split("@")
     closest_match = None
     closest_match_dist = 1e10
     sshables, known_hosts = fetch_sshables()
@@ -341,32 +293,19 @@ def command_ssh(user_at_name, *args):
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
         add_ssh_identity_if_exists(cmd)
-    cmd.extend(args)
+    cmd.extend(*args.args)
     print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
 
 
-def command_scp(*args):
-    remote_at = None
-    for i in range(len(args)):
-        if args[i].find(":") != -1:
-            print("Re-writing \"%s\" as a remote location" % args[i])
-            remote_at = i
-            break
-    if remote_at is None:
-        print("Not clear which parameter refers to a remote location, this is detected by presence of a colon \":\"")
-        print("Examples:")
-        print("s scp local_file1 job:remote_file")
-        print("s scp \"user@job:remote_file*.txt\" local_folder/")
-        quit(1)
-    remote_location = args[remote_at]
-    if "@" in remote_location:
-        user, computer_name_colon_file = remote_location.split("@")
+def command_scp(args):
+    job_name, path = args.dst.split(":")
+    if "@" in job_name:
+        user, computer_name = job_name.split("@")
     else:
         user = "user"
-        computer_name_colon_file = remote_location
-    computer_name, path = computer_name_colon_file.split(":")
+        computer_name = job_name
     right_rec = None
     sshables, known_hosts = fetch_sshables()
     for rec in sshables:
@@ -376,31 +315,26 @@ def command_scp(*args):
         print_table(sshables)
         print("Computer \"%s\" wasn't found." % computer_name)
         quit(1)
-    cmd = ["scp", "-P", "%i" % right_rec['ssh_port']]
+    cmd = ["scp", "-P", "%i" % right_rec['ssh_port'], args.src]
     if right_rec["ed25519"]:
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
         add_ssh_identity_if_exists(cmd)
-    for i, a in enumerate(args):
-        if i == remote_at:
-            cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
-        else:
-            cmd.append(a)
+    cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
+    if args.args:
+        cmd.append(*args.args)
     print(" ".join(cmd))
     # this replaces the current process with scp
     os.execv("/usr/bin/scp", cmd)
 
 
-def command_upload_code(*args):
+def command_upload_code(args):
     coderoot = code_root()
-    if len(args) == 0:
-        print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
-        quit(1)
     sshables, known_hosts = fetch_sshables()
     save_known_hosts(known_hosts)
     upload_dest = []
     upload_user = []
-    for j in args:
+    for j in args.job_name:  # TODO(d.ageev): may be it is node name?
         if "@" in j:
             user, computer_name = j.split("@")
         else:
@@ -437,7 +371,7 @@ def command_nodes():
     print_table(nodes_json)
 
 
-def command_ssh_keygen(*args):
+def command_ssh_keygen(args):
     jobs_for_warning = fetch_json(v1_url + "jobs", headers=account_and_secret_key())
     jobs_running = [x for x in jobs_for_warning if x["ts_finished"] == 0]
     if len(jobs_running) > 0:
@@ -447,7 +381,7 @@ def command_ssh_keygen(*args):
         os.unlink(ssh_rsa_id)
     except FileNotFoundError:
         pass
-    r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", "", *args])
+    r = run(["ssh-keygen", "-f", ssh_rsa_id, "-N", "", *args.args])
     assert r==0, r
     resp = fetch_json(
         v1_url + "ssh-public-key-upload",
@@ -456,13 +390,10 @@ def command_ssh_keygen(*args):
     pretty_print_response(resp)
 
 
-def command_ssh_upload(*args):
-    if len(args) != 1:
-        print("Please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, for a dedicated key use \"s ssh-keygen\")")
-        quit(1)
+def command_ssh_upload(args):
     resp = fetch_json(
         v1_url + "ssh-public-key-upload",
-        post_json={"ssh_public_key": open(os.path.expanduser(args[0])).read()},
+        post_json={"ssh_public_key": open(os.path.expanduser(args.filename)).read()},
         headers=account_and_secret_key())
     pretty_print_response(resp)
 
@@ -472,12 +403,8 @@ def add_ssh_identity_if_exists(ssh_cmdline):
         ssh_cmdline.extend(["-i", ssh_rsa_id])
 
 
-def command_promo(*args):
-    if len(args) == 0:
-        print("This command applies a promo code (might add money to your account).")
-        return
-    assert len(args) == 1
-    resp = fetch_json(v1_url + "apply-promo", get_params={"code": args[0]}, headers=account_and_secret_key())
+def command_promo(args):
+    resp = fetch_json(v1_url + "apply-promo", get_params={"code": args.code}, headers=account_and_secret_key())
     pretty_print_response(resp)
 
 
@@ -494,45 +421,46 @@ def command_prices():
     print(resp)
 
 
-def cli_command(command, *args):
+# def cli_command(command, *args):
+def cli_command(command, args):
     if command == "free":
         command_free()
 
     elif command == "login":
-        command_login(*args)
+        command_login()
 
     elif command == "logout":
         command_logout()
 
     elif command == "reserve":
-        command_reserve(*args)
+        command_reserve(args)
 
     elif command in ["list", "jobs"]:
         command_jobs()
 
     elif command in ["delete", "remove"]:
-        command_delete(*args)
+        command_delete(args)
 
     elif command == "upload-code":
-        command_upload_code(*args)
+        command_upload_code(args)
 
     elif command == "nodes":
         command_nodes()
 
     elif command == "ssh":
-        command_ssh(*args)
+        command_ssh(args)
 
     elif command == "scp":
-        command_scp(*args)
+        command_scp(args)
 
     elif command == "ssh-keygen":
-        command_ssh_keygen(*args)
+        command_ssh_keygen(args)
 
     elif command == "ssh-upload":
-        command_ssh_upload(*args)
+        command_ssh_upload(args)
 
     elif command == "promo":
-        command_promo(*args)
+        command_promo(args)
 
     elif command == "billing":
         command_billing("billing-short")
@@ -549,23 +477,91 @@ def cli_command(command, *args):
     # elif command == "tail":
     #     print("tail!")
 
-    else:
-        print_help()
-        print("Unknown command:", command)
-        quit(1)
+
+def parse_args():
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser(
+        description="This is a command line tool to use Small Magellanic Cloud AI Ltd services. "
+                    "Homepage for this tool: https://github.com/smallcloudai/smallcloud")
+    parser.add_argument("--json", action="store_true", default=False)
+
+    subparsers = parser.add_subparsers(dest="command", metavar="command")
+
+    subparsers.add_parser(
+        "free", help="Print number of free GPUs, works without login.")
+    subparsers.add_parser(
+        "login", help="Interactive login using your web browser.")
+    subparsers.add_parser(
+        "logout", help="TODO")
+    reserve_subparser = subparsers.add_parser(
+        "reserve", help="Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64. "
+                        "Starting from 16, multiple VMs will be launched. "
+                        "If the job cannot start immediately, it will be queued.")
+    reserve_subparser.add_argument("gpu_type", help="GPU to reserve")
+    reserve_subparser.add_argument("count", type=int, help="Number of GPUs")
+    reserve_subparser.add_argument("job_name", help="Name of the experiment")
+    reserve_subparser.add_argument("--os", help="Operating system")
+    subparsers.add_parser(
+        "jobs", aliases=["list"], help="Prints your jobs, working and finished.")
+    delete_subparser = subparsers.add_parser(
+        "delete", aliases=["remove"], help="Delete jobs. Use \"experiment05*\" syntax to delete several jobs.")
+    delete_subparser.add_argument("job_name", nargs="+", help="Name of job")
+    upload_subparser = subparsers.add_parser(
+        "upload-code", help="Upload your source code using rsync. "
+                            "Use \"experiment05*\" syntax to upload to several jobs. "
+                            "Remote destination is hardcoded as \"/home/user/code/\".")
+    upload_subparser.add_argument("job_name", help="Name of job")
+    subparsers.add_parser(
+        "nodes", help="TODO")
+    ssh_subparser = subparsers.add_parser(
+        "ssh", help="SSH into the job. By default the user is \"user\". "
+                    "You can use \"otheruser@jobname\" syntax if you created more users.")
+    ssh_subparser.add_argument("job_name", help="Name of job")
+    ssh_subparser.add_argument(
+        "--args", nargs="+", type=str, required=False, default=[], help="SSH arguments")
+    scp_subparser = subparsers.add_parser(
+        "scp", help="Copy a file.")
+    scp_subparser.add_argument("src", help="Local file")
+    scp_subparser.add_argument("dst", help="Name of job and destination <job_name>:<dst>")
+    scp_subparser.add_argument(
+        "--args", nargs="+", type=str, required=False, default=[], help="SCP arguments")
+    ssh_keygen_subparser = subparsers.add_parser(
+        "ssh-keygen", help="Generate a new SSH keypair and upload the public part.")
+    ssh_keygen_subparser.add_argument(
+        "--args", nargs="+", type=str, required=False, default=[], help="SSH keygen arguments")
+    ssh_upload_subparser = subparsers.add_parser(
+        "ssh-upload", help="If you prefer, you can upload this computer's public key.")
+    ssh_upload_subparser.add_argument(
+        "filename", type=str, help="A file to upload, such as ~/.ssh/id_rsa.pub "
+                                   "(do this if you want ssh without -i option to work, "
+                                   "for a dedicated key use \"s ssh-keygen\")")
+    promo_subparser = subparsers.add_parser(
+        "promo", help="TODO")
+    promo_subparser.add_argument("code", type=str, help="Promo code/")
+    subparsers.add_parser(
+        "billing", help="TODO")
+    subparsers.add_parser(
+        "billing-detailed", help="TODO")
+    subparsers.add_parser(
+        "money", aliases=["$", "dollars", "shekels"],
+        help="CLI analogs of webpages to monitor your balance and billing.")
+    subparsers.add_parser(
+        "prices", help="Print prices, works without login.")
+
+    return parser.parse_args()
 
 
 def main():
-    if "--json" in sys.argv:
+    args = parse_args()
+
+    if args.json:
         global global_option_json
         global_option_json = True
-        sys.argv.remove("--json")
-    if len(sys.argv) < 2:
-        print_help()
-        quit(0)
+
     read_config_file()
-    cli_command(sys.argv[1], *sys.argv[2:])
+    cli_command(args.command, args)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
