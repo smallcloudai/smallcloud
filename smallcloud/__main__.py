@@ -214,7 +214,7 @@ def command_reserve(args):
     make_sure_have_login()
     gpu_min = args.count
     post_json = {
-        "task_name": args.job_name,
+        "task_name": args.job,
         "gpu_type": args.gpu_type,
         "gpu_min": int(gpu_min),
         }
@@ -240,7 +240,7 @@ def command_jobs():
 
 def command_delete(args):
     make_sure_have_login()
-    for tname in args.job_name:
+    for tname in args.job:
         resp = fetch_json(v1_url + "delete", get_params={"task_name": tname}, headers=account_and_secret_key())
         pretty_print_response(resp)
 
@@ -261,11 +261,11 @@ def save_known_hosts(known_hosts):
 
 
 def command_ssh(args):
-    if "@" not in args.job_name:
-        computer_name = args.job_name
+    if "@" not in args.job:
+        computer_name = args.job
         user = "user"
     else:
-        user, computer_name = args.job_name.split("@")
+        user, computer_name = args.job.split("@")
     closest_match = None
     closest_match_dist = 1e10
     sshables, known_hosts = fetch_sshables()
@@ -293,19 +293,19 @@ def command_ssh(args):
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
         add_ssh_identity_if_exists(cmd)
-    cmd.extend(*args.args)
+    cmd.extend(args.args)
     print(" ".join(cmd))
     # this replaces the current process with ssh
     os.execv("/usr/bin/ssh", cmd)
 
 
 def command_scp(args):
-    job_name, path = args.dst.split(":")
-    if "@" in job_name:
-        user, computer_name = job_name.split("@")
+    job, path = args.dst.split(":")
+    if "@" in job:
+        user, computer_name = job.split("@")
     else:
         user = "user"
-        computer_name = job_name
+        computer_name = job
     right_rec = None
     sshables, known_hosts = fetch_sshables()
     for rec in sshables:
@@ -315,14 +315,14 @@ def command_scp(args):
         print_table(sshables)
         print("Computer \"%s\" wasn't found." % computer_name)
         quit(1)
-    cmd = ["scp", "-P", "%i" % right_rec['ssh_port'], args.src]
+    cmd = ["scp", "-P", "%i" % right_rec['ssh_port']]
     if right_rec["ed25519"]:
         save_known_hosts(known_hosts)
         cmd.extend(["-o", "UserKnownHostsFile=%s" % known_hosts_file])
         add_ssh_identity_if_exists(cmd)
-    cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
     if args.args:
-        cmd.append(*args.args)
+        cmd.extend(args.args)
+    cmd.extend([args.src, "%s@%s:%s" % (user, right_rec['ssh_addr'], path)])
     print(" ".join(cmd))
     # this replaces the current process with scp
     os.execv("/usr/bin/scp", cmd)
@@ -334,7 +334,7 @@ def command_upload_code(args):
     save_known_hosts(known_hosts)
     upload_dest = []
     upload_user = []
-    for j in args.job_name:  # TODO(d.ageev): may be it is node name?
+    for j in args.job:
         if "@" in j:
             user, computer_name = j.split("@")
         else:
@@ -480,6 +480,7 @@ def cli_command(command, args):
 
 def parse_args():
     from argparse import ArgumentParser
+    from argparse import REMAINDER
 
     parser = ArgumentParser(
         description="This is a command line tool to use Small Magellanic Cloud AI Ltd services. "
@@ -493,43 +494,43 @@ def parse_args():
     subparsers.add_parser(
         "login", help="Interactive login using your web browser.")
     subparsers.add_parser(
-        "logout", help="TODO")
+        "logout", help="Logout from session.")
     reserve_subparser = subparsers.add_parser(
         "reserve", help="Reserve GPUs, start the job. Valid gpu_count values are 1, 2, 4, 8, 16, 32, 64. "
                         "Starting from 16, multiple VMs will be launched. "
                         "If the job cannot start immediately, it will be queued.")
     reserve_subparser.add_argument("gpu_type", help="GPU to reserve")
     reserve_subparser.add_argument("count", type=int, help="Number of GPUs")
-    reserve_subparser.add_argument("job_name", help="Name of the experiment")
+    reserve_subparser.add_argument("job", help="Name of job")
     reserve_subparser.add_argument("--os", help="Operating system")
     subparsers.add_parser(
         "jobs", aliases=["list"], help="Prints your jobs, working and finished.")
     delete_subparser = subparsers.add_parser(
         "delete", aliases=["remove"], help="Delete jobs. Use \"experiment05*\" syntax to delete several jobs.")
-    delete_subparser.add_argument("job_name", nargs="+", help="Name of job")
+    delete_subparser.add_argument("job", nargs="+", type=str, default=[], help="Name of job")
     upload_subparser = subparsers.add_parser(
         "upload-code", help="Upload your source code using rsync. "
                             "Use \"experiment05*\" syntax to upload to several jobs. "
                             "Remote destination is hardcoded as \"/home/user/code/\".")
-    upload_subparser.add_argument("job_name", help="Name of job")
+    upload_subparser.add_argument("job", nargs="+", type=str, default=[], help="Name of job")
     subparsers.add_parser(
-        "nodes", help="TODO")
+        "nodes", help="List available nodes.")
     ssh_subparser = subparsers.add_parser(
         "ssh", help="SSH into the job. By default the user is \"user\". "
                     "You can use \"otheruser@jobname\" syntax if you created more users.")
-    ssh_subparser.add_argument("job_name", help="Name of job")
+    ssh_subparser.add_argument("job", help="Name of job")
     ssh_subparser.add_argument(
-        "--args", nargs="+", type=str, required=False, default=[], help="SSH arguments")
+        "args", nargs=REMAINDER, type=str, default=[], help="SSH arguments")
     scp_subparser = subparsers.add_parser(
         "scp", help="Copy a file.")
     scp_subparser.add_argument("src", help="Local file")
-    scp_subparser.add_argument("dst", help="Name of job and destination <job_name>:<dst>")
+    scp_subparser.add_argument("dst", help="Name of job and destination <job>:<dst>")
     scp_subparser.add_argument(
-        "--args", nargs="+", type=str, required=False, default=[], help="SCP arguments")
+        "args", nargs=REMAINDER, type=str, default=[], help="SCP arguments")
     ssh_keygen_subparser = subparsers.add_parser(
         "ssh-keygen", help="Generate a new SSH keypair and upload the public part.")
     ssh_keygen_subparser.add_argument(
-        "--args", nargs="+", type=str, required=False, default=[], help="SSH keygen arguments")
+        "args", nargs=REMAINDER, type=str, default=[], help="SSH keygen arguments")
     ssh_upload_subparser = subparsers.add_parser(
         "ssh-upload", help="If you prefer, you can upload this computer's public key.")
     ssh_upload_subparser.add_argument(
@@ -537,12 +538,12 @@ def parse_args():
                                    "(do this if you want ssh without -i option to work, "
                                    "for a dedicated key use \"s ssh-keygen\")")
     promo_subparser = subparsers.add_parser(
-        "promo", help="TODO")
+        "promo", help="Apply promo code.")
     promo_subparser.add_argument("code", type=str, help="Promo code/")
     subparsers.add_parser(
-        "billing", help="TODO")
+        "billing", help="List short billing table.")
     subparsers.add_parser(
-        "billing-detailed", help="TODO")
+        "billing-detailed", help="List full billing table.")
     subparsers.add_parser(
         "money", aliases=["$", "dollars", "shekels"],
         help="CLI analogs of webpages to monitor your balance and billing.")
