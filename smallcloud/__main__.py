@@ -2,6 +2,7 @@ import os, sys, json, time, subprocess, termcolor
 import urllib
 import urllib.request
 import urllib.error
+from smallcloud import code_root
 
 
 # This file runs on "s" in command line.
@@ -167,23 +168,6 @@ def pretty_print_response(json):
         print(termcolor.colored(retcode, color), json["human_readable_message"])
         return
     print(json)
-
-
-def code_root():
-    start_dir = os.getcwd()
-    p = start_dir
-    while 1:
-        if os.path.exists(p + "/.smc_code_root"):
-            break
-        if p == os.path.dirname(p):
-            print("Cannot find code root, searched the current directory '%s' and up." % start_dir)
-            print("Please create a file '.smc_code_root' in the directory you want to upload to your VM, for example:")
-            printhl(f"touch {start_dir}/.smc_code_root")
-            quit(0)
-        p = os.path.dirname(p)
-    p += "/"  # that makes rsync happy
-    print_if_appropriate("Code root detected at: %s" % p)
-    return p
 
 
 def read_config_file():
@@ -397,7 +381,7 @@ def command_scp(*args):
 
 
 def command_upload_code(*args):
-    coderoot = code_root()
+    coderoot = code_root.detect_code_root()
     if len(args) == 0:
         print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
         quit(1)
