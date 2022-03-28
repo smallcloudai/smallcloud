@@ -3,7 +3,11 @@ import urllib
 import urllib.request
 import urllib.error
 
- # Read this source code, nice and clean!
+
+# This file runs on "s" in command line.
+#
+# Read this source code, nice and clean!
+#
 
 
 v1_url = "https://www.smallcloud.ai/v1/"
@@ -152,6 +156,7 @@ def print_table(resp, omit_for_brevity=[]):
             df[column.upper()] = [x[column] for x in flatlist]
         else:
             df[column.upper()] = [print_datetime(x[column]) for x in flatlist]
+    pandas.set_option('display.max_rows', None)
     print(df)
 
 
@@ -282,7 +287,7 @@ def command_jobs():
     finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
     hidden = len(resp) - len(finished_less_than_day_ago)
     if hidden:
-        print(termcolor.colored("finished more than a day ago: %i" % hidden, "white"))
+        print(termcolor.colored("Finished more than a day ago: %i" % hidden, "white"))
     print_table(finished_less_than_day_ago, ["cluster_name", "tenant_name", "tenant_image", "ts_placed", "gpu_type", "gpus_min", "gpus_max", "gpus_incr", "nice", "ed25519"])
 
 
