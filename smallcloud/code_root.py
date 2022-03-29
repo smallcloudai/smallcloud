@@ -1,4 +1,8 @@
-import os, shutil, subprocess, datetime
+import os, shutil, subprocess, datetime, json
+from smallcloud import config
+import urllib
+import urllib.request
+import urllib.error
 
 
 def detect_code_root():
@@ -44,3 +48,21 @@ def code_to_zip():
     print(" ".join(cmd))
     subprocess.check_call(cmd, cwd=tmp)
     return f"/tmp/{fn}.zip"
+
+
+def code_upload(zip_fn):
+    MAX_ZIP_SIZE = 5*1024*1024
+    zip_data = open(zip_fn, "rb").read()
+    if len(zip_data) > MAX_ZIP_SIZE:
+        raise Exception("Maximum code archive size is %0.1fM, your code %0.1fM" % (MAX_ZIP_SIZE/1024/1024, len(zip_data)/1024/1024))
+    url = config.v1_url + "zip-upload"
+    print(url)
+    req = urllib.request.Request(url, zip_data, config.account_and_secret_key_headers())
+    try:
+        result = urllib.request.urlopen(req).read()
+        j = json.loads(result)
+    except urllib.error.HTTPError as e:
+        print(e.read().decode())
+        quit(1)
+    print("AAAA")
+    print(j)
