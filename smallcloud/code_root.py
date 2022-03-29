@@ -1,8 +1,4 @@
-import os, shutil, subprocess, datetime, json
-from smallcloud import config
-import urllib
-import urllib.request
-import urllib.error
+import os, shutil, subprocess, datetime, json, requests
 
 
 def detect_code_root():
@@ -34,35 +30,18 @@ def detect_code_root():
 
 
 def code_to_zip():
-    fn = "smc_code_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    fn = "codezip_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     assert shutil.which("7za") is not None, "ubuntu: apt-get install p7zip-full\nmac: brew install p7zip"
     root = detect_code_root()
-    short = root.replace(os.path.expanduser('~'), '', 1)
-    tmp = "/tmp" + short
+    path_from_home = root.replace(os.path.expanduser('~/'), '', 1)
+    # If you use several code roots, path_from_home helps rsync destination to be unique.
+    tmp = os.path.join("/tmp/smc-temp/", path_from_home)
     os.makedirs(tmp, exist_ok=True)
     cmd = ["rsync", "-rplu", "--delete", ".", tmp, "--filter=:- .gitignore", "--exclude=.git"]
     print(" ".join(cmd))
     subprocess.check_call(cmd, cwd=root)
-    cmd = ["7za", "-bso0", "-y", "a", f"/tmp/{fn}.zip", "."]
+    cmd = ["7za", "-bso0", "-y", "a", f"/tmp/smc-temp/{fn}.7z", "."]
     # -bs{o|e|p}{0|1|2} : set output stream for output/error/progress line
     print(" ".join(cmd))
     subprocess.check_call(cmd, cwd=tmp)
-    return f"/tmp/{fn}.zip"
-
-
-def code_upload(zip_fn):
-    MAX_ZIP_SIZE = 5*1024*1024
-    zip_data = open(zip_fn, "rb").read()
-    if len(zip_data) > MAX_ZIP_SIZE:
-        raise Exception("Maximum code archive size is %0.1fM, your code %0.1fM" % (MAX_ZIP_SIZE/1024/1024, len(zip_data)/1024/1024))
-    url = config.v1_url + "zip-upload"
-    print(url)
-    req = urllib.request.Request(url, zip_data, config.account_and_secret_key_headers())
-    try:
-        result = urllib.request.urlopen(req).read()
-        j = json.loads(result)
-    except urllib.error.HTTPError as e:
-        print(e.read().decode())
-        quit(1)
-    print("AAAA")
-    print(j)
+    return f"/tmp/smc-temp/{fn}.7z"
