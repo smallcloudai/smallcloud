@@ -47,14 +47,18 @@ def launch_task(
     gpu_type="a5000",  # or more specifically cluster/gpu_type, "ant/a5000"
     gpus: int = 0,
     shutdown: str = "auto",  # "always", "never", "auto" doesn't shutdown if there's an error so you can look at the logs.
-    # cluster: str = "default",
     nice: int = 1,  # 0 preempts others, 1 normal, 2 low
     os_image: str = "",
 ):
     config.read_config_file()
     os.makedirs("/tmp/smc-temp", exist_ok=True)
     pickle_filename = f"/tmp/smc-temp/pickle-call-{task_name}.pkl"
-    cloudpickle.dump(training_function, open(pickle_filename, "wb"))
+    cloudpickle.dump({
+        "training_function": training_function,
+        "args": args,
+        "kwargs": kwargs,
+        "shutdown": shutdown,
+        }, open(pickle_filename, "wb"))
     pickle_upload_id = upload_file(pickle_filename)
     post_json = {
     "task_name": task_name,
