@@ -400,8 +400,8 @@ def cli_command(command, *args):
     elif command == "prices":
         command_prices()
 
-    # elif command == "tail":
-    #     print("tail!")
+    elif command == "tail":
+        command_ssh(*args + ("tail -n 1000 -f output.log",))
 
     else:
         print_help()
