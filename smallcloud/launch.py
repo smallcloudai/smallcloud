@@ -27,7 +27,6 @@ def upload_file(fn: str):
     if j["retcode"] != "OK":
         print(termcolor.colored(j["retcode"], "red"), j["human_readable_message"])
         quit(1)
-    print(j)
     return j["upload_id"]
 
 
@@ -49,6 +48,7 @@ def launch_task(
     shutdown: str = "auto",  # "always", "never", "auto" doesn't shutdown if there's an error so you can look at the logs.
     nice: int = 1,  # 0 preempts others, 1 normal, 2 low
     os_image: str = "",
+    env: Dict[str, str] = {},
 ):
     config.read_config_file()
     os.makedirs("/tmp/smc-temp", exist_ok=True)
@@ -58,6 +58,7 @@ def launch_task(
         "args": args,
         "kwargs": kwargs,
         "shutdown": shutdown,
+        "env": {"TASK_NAME": task_name, **env},
         }, open(pickle_filename, "wb"))
     pickle_upload_id = upload_file(pickle_filename)
     post_json = {
@@ -71,4 +72,5 @@ def launch_task(
     "file_pkl": pickle_upload_id,
     "nice": nice,
     }
-    call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
+    ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
+    call_api.pretty_print_response(ret)
