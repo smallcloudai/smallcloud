@@ -13,6 +13,7 @@ ssh_rsa_id_file = config_dir + "/dedicated_ssh_rsa_id"
 known_hosts_file = config_dir + "/known_hosts"
 username = None
 secret_api_key = None
+already_running_in_cloud = os.path.exists("/etc/profile.d/50-smc.sh")
 
 
 def read_config_file():

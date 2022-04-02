@@ -31,7 +31,7 @@ def detect_code_root():
 
 def code_to_zip():
     fn = "codezip_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    assert shutil.which("7za") is not None, "ubuntu: apt-get install p7zip-full\nmac: brew install p7zip"
+    assert shutil.which("7zr") is not None, "ubuntu: apt-get install p7zip-full\nmac: brew install p7zip"
     root = detect_code_root()
     path_from_home = root.replace(os.path.expanduser('~/'), '', 1)
     # If you use several code roots, path_from_home helps rsync destination to be unique.

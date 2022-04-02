@@ -1,4 +1,4 @@
-import os, json, requests, termcolor
+import os, json, requests, termcolor, functools
 from typing import Optional, List, Dict, Any, Union, Callable
 import cloudpickle
 from smallcloud import config, call_api
@@ -30,11 +30,10 @@ def upload_file(fn: str):
     return j["upload_id"]
 
 
-def code_upload(zip_fn: Optional[str] = None):
-    if zip_fn is None:
-        from smallcloud import code_to_zip
-        zip_fn = code_to_zip()
-    return upload_file(zip_fn)
+@functools.lru_cache()
+def code_upload():
+    from smallcloud import code_to_zip
+    return upload_file(code_to_zip())
 
 
 def launch_task(
@@ -42,14 +41,20 @@ def launch_task(
     training_function: Union[Callable, str],
     args: List[Any] = [],
     kwargs: Dict[str, Any] = {},
-    code_zip: Optional[str] = None,
     gpu_type="a5000",  # or more specifically cluster/gpu_type, "ant/a5000"
     gpus: int = 0,
     shutdown: str = "auto",  # "always", "never", "auto" doesn't shutdown if there's an error so you can look at the logs.
     nice: int = 1,  # 0 preempts others, 1 normal, 2 low
     os_image: str = "",
     env: Dict[str, str] = {},
+    upload_code_zip: bool = False,
+    call_function_directly: Optional[bool] = None,
 ):
+    if call_function_directly or (call_function_directly is None and config.already_running_in_cloud):
+        for k, v in env.items():
+            os.environ[k] = v
+        training_function(*args, **kwargs)
+        return
     config.read_config_file()
     os.makedirs("/tmp/smc-temp", exist_ok=True)
     pickle_filename = f"/tmp/smc-temp/pickle-call-{task_name}.pkl"
@@ -61,6 +66,9 @@ def launch_task(
         "env": {"TASK_NAME": task_name, **env},
         }, open(pickle_filename, "wb"))
     pickle_upload_id = upload_file(pickle_filename)
+    code_zip = ""
+    if upload_code_zip:
+        code_zip = code_upload()
     post_json = {
     "task_name": task_name,
     "tenant_image": os_image,
