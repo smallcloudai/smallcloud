@@ -4,7 +4,7 @@ import cloudpickle
 from smallcloud import config, call_api
 
 
-MAX_UPLOAD_SIZE = 5*1024*1024
+MAX_UPLOAD_SIZE = 25*1024*1024
 
 
 def upload_file(fn: str):
@@ -16,7 +16,6 @@ def upload_file(fn: str):
     headers = config.account_and_secret_key_headers()
     files = {
         'file1': (os.path.basename(fn), open(fn, 'rb'), 'application/zip'),
-        'file2': (os.path.basename(fn), open(fn, 'rb'), 'application/zip'),
     }
     print(url, "POST", os.path.basename(fn))
     r = requests.post(url, files=files, headers=headers)
