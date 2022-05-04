@@ -80,7 +80,7 @@ def command_login(*args):
             "secret_api_key": resp["secret_api_key"],
             }, indent=4))
     os.chmod(config.config_file, 0o600)
-    print("\Login successful: %s" % resp["account_name"])
+    print("Login successful: %s" % resp["account_name"])
     print("Account name and the Secret API Key were stored in %s" % config.config_file)
     print("Try this:")
     print(termcolor.colored("s list", attrs=["bold"]))

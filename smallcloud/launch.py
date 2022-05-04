@@ -52,6 +52,7 @@ def launch_task(
     if call_function_directly or (call_function_directly is None and config.already_running_in_cloud):
         for k, v in env.items():
             os.environ[k] = v
+        os.environ["TASK_NAME"] = task_name
         training_function(*args, **kwargs)
         return
     config.read_config_file()
