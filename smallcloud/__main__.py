@@ -1,5 +1,5 @@
-import os, sys, json, time, subprocess, termcolor
-from smallcloud import config, code_root, call_api
+import os, sys, json, time, termcolor
+from smallcloud import config, call_api, ssh_commands
 
 # This file runs on "s" in command line.
 
@@ -35,35 +35,15 @@ def print_help():
     print("      Upload your source code using rsync.")
     print("      Use \"experiment05*\" syntax to upload to several jobs.")
     print("      Remote destination is hardcoded as \"/home/user/code/\".")
+    print("      Add --init option to run \"/home/user/code/.smc_code_root.sh\" after the upload is completed.")
     printhl("s ssh-keygen")
-    print("      Generate a new SSH keypair and upload the public part.")
-    printhl("s ssh-upload")
-    print("      If you prefer, you can upload this computer's public key.")
+    print("      Generate a dedicated SSH keypair and upload the public part.")
+    printhl("s ssh-key-upload")
+    print("      If you prefer, you can upload this computer's public key or any other key.")
     printhl("s billing")
     printhl("s billing-detailed")
     printhl("s money")
     print("      CLI analogs of webpages to monitor your balance and billing.")
-
-
-def run(cmd, stdout=None, stderr=None, **kwargs):
-    # This function runs 'rsync' and 'ssh-keygen'
-    # To debug, use:
-    #  verbose=1 dry=1 s command
-    verbose = int(os.environ.get("verbose", "0"))
-    if not verbose:
-        stdout = subprocess.DEVNULL if stdout is None else stdout
-    stderr = stderr or subprocess.PIPE
-    if not call_api.global_option_json:
-        print(" ".join(cmd))
-    dry = int(os.environ.get("dry", "0"))
-    if dry:
-        return 0
-    completed_process = subprocess.run(cmd, stdout=stdout, stderr=stderr, **kwargs)
-    if completed_process.returncode != 0:
-        print("RETCODE: %s" % completed_process.returncode)
-    if completed_process.stderr and (verbose or completed_process.returncode != 0):
-        print("STDERR: %s" % completed_process.stderr.decode("utf-8"))
-    return completed_process.returncode
 
 
 def command_login(*args):
@@ -96,7 +76,6 @@ def command_logout():
     print("Logged out")
 
 
-
 def command_free():
     free_json = call_api.fetch_json(config.v1_url + "free", headers=config.account_and_secret_key_headers())
     call_api.print_table(free_json)
@@ -113,12 +92,14 @@ def command_reserve(*args):
     parser_reserve.add_argument("count", type=int, help="Number of GPUs")
     parser_reserve.add_argument("job_name", help="Name of the experiment")
     parser_reserve.add_argument("--os", help="Operating system")
+    parser_reserve.add_argument("--force-node", help=argparse.SUPPRESS)
     args = parser.parse_args(("reserve",) + args)
     gpu_min = args.count
     post_json = {
         "task_name": args.job_name,
         "gpu_type": args.gpu_type,
         "gpu_min": int(gpu_min),
+        "force_node": args.force_node,
         }
     if args.os:
         post_json["tenant_image"] = args.os
@@ -126,14 +107,21 @@ def command_reserve(*args):
     call_api.pretty_print_response(ret_json)
 
 
-def command_jobs():
+def command_jobs(*args):
     config.make_sure_have_login()
     resp = call_api.fetch_json(config.v1_url + "jobs", headers=config.account_and_secret_key_headers())
     day_ago = time.time() - 24*3600
     if resp == []:
         print("There are no jobs yet. You can start one using:\n" + termcolor.colored("s reserve a5000 4 myexperiment00-seed0", attrs=["bold"]))
         return
-    finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
+    import argparse
+    parser = argparse.ArgumentParser(description="List your jobs.")
+    parser.add_argument("--all", action="store_true", help="Show all jobs, not only those that are finished less than a day ago.")
+    args = parser.parse_args(args)
+    if args.all:
+        finished_less_than_day_ago = resp
+    else:
+        finished_less_than_day_ago = [x for x in resp if x["ts_finished"] == 0 or x["ts_finished"] > day_ago]
     hidden = len(resp) - len(finished_less_than_day_ago)
     if hidden:
         print(termcolor.colored("Finished more than a day ago: %i" % hidden, "white"))
@@ -147,183 +135,9 @@ def command_delete(*task_names):
         call_api.pretty_print_response(resp)
 
 
-def fetch_sshables():
-    sshables = call_api.fetch_json(config.v1_url + "list-ssh-able", headers=config.account_and_secret_key_headers())
-    known_hosts = []
-    for rec in sshables:
-        if rec["ed25519"]:
-            known_hosts.append("[%s]:%i %s" % (rec['ssh_addr'], rec['ssh_port'], rec['ed25519']))
-    return sshables, known_hosts
-
-
-def save_known_hosts(known_hosts):
-    with open(config.known_hosts_file, "wt") as f:
-        f.write("\n".join(known_hosts) + "\n")
-    os.chmod(config.known_hosts_file, 0o600)
-
-
-def command_ssh(user_at_name, *args):
-    if "@" not in user_at_name:
-        computer_name = user_at_name
-        user = "user"
-    else:
-        user, computer_name = user_at_name.split("@")
-    closest_match = None
-    closest_match_dist = 1e10
-    sshables, known_hosts = fetch_sshables()
-    import difflib
-    right_rec = None
-    for rec in sshables:
-        if rec["name"] == computer_name:
-            right_rec = rec
-        dist = difflib.SequenceMatcher(None, rec["name"], computer_name).ratio()
-        if dist > 0.8 and dist < closest_match_dist:
-            closest_match = rec
-            closest_match_dist = dist
-    if right_rec is None:
-        call_api.print_table(sshables)
-        print("Computer \"%s\" wasn't found." % computer_name)
-        if closest_match is not None:
-            print("Did you mean \"%s\"?" % closest_match["name"])
-        return
-    cmd = [
-        "ssh",
-        "%s@%s" % (user, right_rec['ssh_addr']),
-        "-p", "%i" % right_rec['ssh_port'],
-    ]
-    if right_rec["ed25519"]:  # Ether way strict checking is on!
-        save_known_hosts(known_hosts)
-        cmd.extend(["-o", "UserKnownHostsFile=%s" % config.known_hosts_file])
-        add_ssh_identity_if_exists(cmd)
-    cmd.extend(args)
-    print(" ".join(cmd))
-    # this replaces the current process with ssh
-    os.execv("/usr/bin/ssh", cmd)
-
-
-def command_scp(*args):
-    remote_at = None
-    for i in range(len(args)):
-        if args[i].find(":") != -1:
-            print("Re-writing \"%s\" as a remote location" % args[i])
-            remote_at = i
-            break
-    if remote_at is None:
-        print("Not clear which parameter refers to a remote location, this is detected by presence of a colon \":\"")
-        print("Examples:")
-        print("s scp local_file1 job:remote_file")
-        print("s scp \"user@job:remote_file*.txt\" local_folder/")
-        quit(1)
-    remote_location = args[remote_at]
-    if "@" in remote_location:
-        user, computer_name_colon_file = remote_location.split("@")
-    else:
-        user = "user"
-        computer_name_colon_file = remote_location
-    computer_name, path = computer_name_colon_file.split(":")
-    right_rec = None
-    sshables, known_hosts = fetch_sshables()
-    for rec in sshables:
-        if rec["name"] == computer_name:
-            right_rec = rec
-    if right_rec is None:
-        call_api.print_table(sshables)
-        print("Computer \"%s\" wasn't found." % computer_name)
-        quit(1)
-    cmd = ["scp", "-P", "%i" % right_rec['ssh_port']]
-    if right_rec["ed25519"]:
-        save_known_hosts(known_hosts)
-        cmd.extend(["-o", "UserKnownHostsFile=%s" % config.known_hosts_file])
-        add_ssh_identity_if_exists(cmd)
-    for i, a in enumerate(args):
-        if i == remote_at:
-            cmd.append("%s@%s:%s" % (user, right_rec['ssh_addr'], path))
-        else:
-            cmd.append(a)
-    print(" ".join(cmd))
-    # this replaces the current process with scp
-    os.execv("/usr/bin/scp", cmd)
-
-
-def command_upload_code(*args):
-    coderoot = code_root.detect_code_root()
-    if len(args) == 0:
-        print("Please specify computers to upload your code, for example \"myjob05*\", also try \"s list\".")
-        quit(1)
-    sshables, known_hosts = fetch_sshables()
-    save_known_hosts(known_hosts)
-    upload_dest = []
-    upload_user = []
-    for j in args:
-        if "@" in j:
-            user, computer_name = j.split("@")
-        else:
-            user = "user"
-            computer_name = j
-        for rec in sshables:
-            import fnmatch
-            if fnmatch.fnmatch(rec["name"], computer_name):
-                upload_dest.append(rec)
-                upload_user.append(user)
-    call_api.print_if_appropriate("Uploading code to:")
-    call_api.print_table(upload_dest, omit_for_brevity="ed25519")
-    for rec, user in zip(upload_dest, upload_user):
-        # "-u" update based on modification time
-        # "-c" update based on checksum, not date, because git might clone newer files than your modified ones
-        # "--delete" -- nice to have, but has unexpected effects
-        ssh_cmd = [
-            "ssh",
-            "-p", "%i" % rec["ssh_port"],
-        ]
-        if rec["ed25519"]:
-            add_ssh_identity_if_exists(ssh_cmd)
-            ssh_cmd.extend(["-o", "UserKnownHostsFile=%s" % config.known_hosts_file])
-        cmd = [
-            "rsync", "-rpl", "-c", "--itemize-changes", coderoot, f"{user}@{rec['ssh_addr']}:code/", "--filter=:- .gitignore", "--exclude=.git",
-            "-e", " ".join(ssh_cmd),
-            ]
-        r = run(cmd, stdout=sys.stdout, stderr=sys.stderr)
-        assert r==0, r
-
-
 def command_nodes():
     nodes_json = call_api.fetch_json(config.v1_url + "nodes", headers=config.account_and_secret_key_headers())
     call_api.print_table(nodes_json)
-
-
-def command_ssh_keygen(*args):
-    jobs_for_warning = call_api.fetch_json(config.v1_url + "jobs", headers=config.account_and_secret_key_headers())
-    jobs_running = [x for x in jobs_for_warning if x["ts_finished"] == 0]
-    if len(jobs_running) > 0:
-        print(f"You have {len(jobs_running)} jobs running. All ssh-based commands from this computer will start to use a new \"-i {config.ssh_rsa_id_file}\" identity file, this might prevent you from logging in to these running machines.")
-        quit(1)
-    try:
-        os.unlink(config.ssh_rsa_id_file)
-    except FileNotFoundError:
-        pass
-    r = run(["ssh-keygen", "-f", config.ssh_rsa_id_file, "-N", "", *args])
-    assert r==0, r
-    resp = call_api.fetch_json(
-        config.v1_url + "ssh-public-key-upload",
-        post_json={"ssh_public_key": open(config.ssh_rsa_id_file + ".pub").read()},
-        headers=config.account_and_secret_key_headers())
-    call_api.pretty_print_response(resp)
-
-
-def command_ssh_upload(*args):
-    if len(args) != 1:
-        print("Please specify a file to upload, such as ~/.ssh/id_rsa.pub\n(do this if you want ssh without -i option to work, for a dedicated key use \"s ssh-keygen\")")
-        quit(1)
-    resp = call_api.fetch_json(
-        config.v1_url + "ssh-public-key-upload",
-        post_json={"ssh_public_key": open(os.path.expanduser(args[0])).read()},
-        headers=config.account_and_secret_key_headers())
-    call_api.pretty_print_response(resp)
-
-
-def add_ssh_identity_if_exists(ssh_cmdline):
-    if os.path.exists(config.ssh_rsa_id_file):
-        ssh_cmdline.extend(["-i", config.ssh_rsa_id_file])
 
 
 def command_promo(*args):
@@ -362,28 +176,31 @@ def cli_command(command, *args):
         command_reserve(*args)
 
     elif command in ["list", "jobs"]:
-        command_jobs()
+        command_jobs(*args)
 
     elif command in ["delete", "remove"]:
         command_delete(*args)
 
-    elif command == "upload-code":
-        command_upload_code(*args)
-
     elif command == "nodes":
         command_nodes()
 
+    elif command in ["upload-code", "code-upload"]:
+        ssh_commands.command_upload_code(*args)
+
     elif command == "ssh":
-        command_ssh(*args)
+        ssh_commands.command_ssh(*args)
 
     elif command == "scp":
-        command_scp(*args)
+        ssh_commands.command_scp(*args)
+
+    elif command == "tail":
+        ssh_commands.command_ssh(*args + ("tail -n 1000 -f output.log",))
 
     elif command == "ssh-keygen":
-        command_ssh_keygen(*args)
+        ssh_commands.command_ssh_keygen(*args)
 
-    elif command == "ssh-upload":
-        command_ssh_upload(*args)
+    elif command == "ssh-key-upload":
+        ssh_commands.command_ssh_key_upload(*args)
 
     elif command == "promo":
         command_promo(*args)
@@ -399,9 +216,6 @@ def cli_command(command, *args):
 
     elif command == "prices":
         command_prices()
-
-    elif command == "tail":
-        command_ssh(*args + ("tail -n 1000 -f output.log",))
 
     else:
         print_help()

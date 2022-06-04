@@ -1,7 +1,7 @@
-import os, json, requests, termcolor, functools
+import os, time, re, json, requests, termcolor, functools
 from typing import Optional, List, Dict, Any, Union, Callable
 import cloudpickle
-from smallcloud import config, call_api
+from smallcloud import config, call_api, ssh_commands
 
 
 MAX_UPLOAD_SIZE = 25*1024*1024
@@ -46,7 +46,7 @@ def launch_task(
     nice: int = 1,  # 0 preempts others, 1 normal, 2 low
     os_image: str = "",
     env: Dict[str, str] = {},
-    upload_code_zip: bool = False,
+    offline_code_zip: bool = False,
     call_function_directly: Optional[bool] = None,
 ):
     if call_function_directly or (call_function_directly is None and config.already_running_in_cloud):
@@ -65,10 +65,6 @@ def launch_task(
         "shutdown": shutdown,
         "env": {"TASK_NAME": task_name, **env},
         }, open(pickle_filename, "wb"))
-    pickle_upload_id = upload_file(pickle_filename)
-    code_zip = ""
-    if upload_code_zip:
-        code_zip = code_upload()
     post_json = {
     "task_name": task_name,
     "tenant_image": os_image,
@@ -76,9 +72,31 @@ def launch_task(
     "gpu_min": int(gpus),
     "gpu_max": int(gpus),
     "gpus_incr": 1,
-    "file_zip": code_zip,
-    "file_pkl": pickle_upload_id,
     "nice": nice,
     }
+    if offline_code_zip:
+        post_json["file_pkl"] = upload_file(pickle_filename)
+        post_json["file_zip"] = code_upload()
+
     ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
     call_api.pretty_print_response(ret)
+
+    if offline_code_zip:
+        return
+    while 1:
+        time.sleep(3)
+        r = call_api.fetch_json(config.v1_url + "task-nodes", get_params={"task_name": task_name}, headers=config.account_and_secret_key_headers())
+        if r["retcode"] == "WAIT":
+            print("%s waiting for the task to be scheduled" % time.strftime("%Y%m%d %H:%M:%S"))
+            continue
+        nodes = r["nodes"]
+        nodes_running = [(1 if x["status"]=="running" else 0) for x in nodes]
+        print("%s started %i/%i nodes" % (time.strftime("%Y%m%d %H:%M:%S"), sum(nodes_running), len(nodes)))
+        if sum(nodes_running) == len(nodes) and len(nodes) > 0:
+            break
+    ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":", fire_off=True) for n in nodes]
+    ret = [p.wait() for p in ps]
+    if any(ret):
+        print("There was an error copying the pickled startup function to the nodes")
+        quit(1)
+    os.remove(pickle_filename)

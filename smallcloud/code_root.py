@@ -16,12 +16,13 @@ def detect_code_root():
     start_dir = os.getcwd()
     p = start_dir
     while 1:
-        if os.path.exists(p + "/.smc_code_root"):
+        if os.path.exists(p + "/.smc_code_root.sh"):
             break
         if p == os.path.dirname(p):
             print("Cannot find code root, searched the current directory '%s' and up." % start_dir)
-            print("Please create a file '.smc_code_root' in the directory you want to upload to your VM, for example:")
-            print(f"touch {start_dir}/.smc_code_root")
+            print("Please create a file '.smc_code_root.sh' in the directory you want to upload to your VM, for example:")
+            print(f"touch {start_dir}/.smc_code_root.sh")
+            print("You can leave this file empty or put initialization commands here, such as \"pip install -r requirements.txt\" or \"echo 'export VAR=value' >> ~/.profile\"")
             quit(0)
         p = os.path.dirname(p)
     p += "/"  # that makes rsync happy
