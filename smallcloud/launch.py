@@ -30,9 +30,9 @@ def upload_file(fn: str):
 
 
 @functools.lru_cache()
-def code_upload():
+def cached_code_to_zip():
     from smallcloud import code_to_zip
-    return upload_file(code_to_zip())
+    return code_to_zip()
 
 
 def launch_task(
@@ -76,7 +76,9 @@ def launch_task(
     }
     if offline_code_zip:
         post_json["file_pkl"] = upload_file(pickle_filename)
-        post_json["file_zip"] = code_upload()
+        post_json["file_zip"] = upload_file(cached_code_to_zip())
+    else:
+        zip_filename = cached_code_to_zip()
 
     ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
     call_api.pretty_print_response(ret)
@@ -94,9 +96,17 @@ def launch_task(
         print("%s started %i/%i nodes" % (time.strftime("%Y%m%d %H:%M:%S"), sum(nodes_running), len(nodes)))
         if sum(nodes_running) == len(nodes) and len(nodes) > 0:
             break
+    def waitall(ps, doing):
+        ret = [p.wait() for p in ps]
+        if any(ret):
+            print("There was an error %s" % doing)
+            quit(1)
+    if len(nodes) > 1:
+        ps = [ssh_commands.command_ssh(n["hostname"], "./smc_multinode_setup", fire_off=True) for n in nodes]
+        waitall(ps, "setting up /etc/hosts and ssh keys for multi node")
+    ps = [ssh_commands.command_scp(zip_filename, n["hostname"] + ":code.7z", fire_off=True) for n in nodes[0:1]]
+    waitall(ps, "copying code.7z to the first node")
+    ps = [ssh_commands.command_ssh(n["hostname"], "./smc_unpack_code.py", fire_off=True) for n in nodes[0:1]]
+    waitall(ps, "running smc_unpack_code.py on the first node. Try looking at \"s tail %s\"" % nodes[0]["hostname"])
     ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":", fire_off=True) for n in nodes]
-    ret = [p.wait() for p in ps]
-    if any(ret):
-        print("There was an error copying the pickled startup function to the nodes")
-        quit(1)
-    os.remove(pickle_filename)
+    waitall(ps, "copying pickled startup function call")

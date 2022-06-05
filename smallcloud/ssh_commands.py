@@ -82,7 +82,8 @@ def command_ssh(user_at_name, *args, fire_off=False):
     cmd.extend(args)
     if fire_off:
         # return "a promise" client can wait on
-        print(termcolor.colored(" ".join(cmd), "green"))
+        green_starts = -len(args)
+        print(" ".join(cmd[:green_starts]) + " " + termcolor.colored(" ".join(cmd[green_starts:]), "green"))
         return subprocess.Popen(cmd)
     else:
         # this replaces the current process with scp
@@ -98,7 +99,7 @@ def command_scp(*args, fire_off=False):
             remote_at = i
             break
     if remote_at is None:
-        print("Not clear which parameter refers to a remote location, this is detected by presence of a colon \":\"")
+        print("Not clear which parameter refers to a remote location, this is detected by the presence of a colon \":\"")
         print("Examples:")
         print("s scp local_file1 job:remote_file")
         print("s scp \"user@job:remote_file*.txt\" local_folder/")

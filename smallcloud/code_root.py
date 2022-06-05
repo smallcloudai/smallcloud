@@ -40,9 +40,9 @@ def code_to_zip():
     os.makedirs(tmp, exist_ok=True)
     cmd = ["rsync", "-rplu", "--delete", ".", tmp, "--filter=:- .gitignore", "--exclude=.git"]
     print(" ".join(cmd))
-    subprocess.check_call(cmd, cwd=root)
+    subprocess.check_call(cmd, cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     cmd = ["7za", "-bso0", "-y", "a", f"/tmp/smc-temp/{fn}.7z", "."]
     # -bs{o|e|p}{0|1|2} : set output stream for output/error/progress line
     print(" ".join(cmd))
-    subprocess.check_call(cmd, cwd=tmp)
+    subprocess.check_call(cmd, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return f"/tmp/smc-temp/{fn}.7z"
