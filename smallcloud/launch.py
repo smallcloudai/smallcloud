@@ -47,6 +47,7 @@ def launch_task(
     os_image: str = "",
     env: Dict[str, str] = {},
     offline_code_zip: bool = False,
+    kill_upload_start: bool = False,
     call_function_directly: Optional[bool] = None,
 ):
     if call_function_directly or (call_function_directly is None and config.already_running_in_cloud):
@@ -75,24 +76,34 @@ def launch_task(
     "nice": nice,
     }
     if offline_code_zip:
+        assert 0, "Not implemented"
         post_json["file_pkl"] = upload_file(pickle_filename)
         post_json["file_zip"] = upload_file(cached_code_to_zip())
 
-    ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
+    ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers(), ok_retcodes=["RUNNING"])
     call_api.pretty_print_response(ret)
+    if ret["retcode"] == "RUNNING" and not kill_upload_start:
+        print("Exiting. Set kill_upload_start=True to force a restart.")
+        return
+    kus = ret["retcode"] == "RUNNING"
 
     if offline_code_zip:
         return
-    zip_filename = cached_code_to_zip()
+    if not kus:
+        zip_filename = cached_code_to_zip()
     while 1:
         time.sleep(3)
-        r = call_api.fetch_json(config.v1_url + "task-nodes", get_params={"task_name": task_name}, headers=config.account_and_secret_key_headers())
-        if r["retcode"] == "WAIT":
+        ret = call_api.fetch_json(
+            config.v1_url + "task-nodes", get_params={"task_name": task_name},
+            headers=config.account_and_secret_key_headers(),
+            ok_retcodes=["WAIT"])
+        if ret["retcode"] == "WAIT":
             print("%s waiting for the task to be scheduled" % time.strftime("%Y%m%d %H:%M:%S"))
             continue
-        nodes = r["nodes"]
+        nodes = ret["nodes"]
         nodes_running = [(1 if x["status"]=="running" else 0) for x in nodes]
-        print("%s started %i/%i nodes" % (time.strftime("%Y%m%d %H:%M:%S"), sum(nodes_running), len(nodes)))
+        status_list = [x["status"] for x in nodes]
+        print("%s started %i/%i nodes %s" % (time.strftime("%Y%m%d %H:%M:%S"), sum(nodes_running), len(nodes), str(status_list)))
         if sum(nodes_running) == len(nodes) and len(nodes) > 0:
             break
     def waitall(ps, doing):
@@ -103,14 +114,24 @@ def launch_task(
     if len(nodes) > 1:
         ps = [ssh_commands.command_ssh(n["hostname"], "./smc_multinode_setup", fire_off=True) for n in nodes]
         waitall(ps, "setting up /etc/hosts and ssh keys for multi node")
-    ps = [ssh_commands.command_scp(zip_filename, n["hostname"] + ":code.7z", fire_off=True) for n in nodes[0:1]]
-    waitall(ps, "copying code.7z to the first node")
+    if not kus:
+        ps = [ssh_commands.command_scp(zip_filename, n["hostname"] + ":code.7z", fire_off=True) for n in nodes[0:1]]
+        waitall(ps, "copying code.7z to the first node")
+    else:
+        ps = [ssh_commands.command_ssh(n["hostname"], "killall python python3 || true", fire_off=True) for n in nodes]
+        waitall(ps, "killing any existing python processes")
+        ssh_commands.command_upload_code(nodes[0]["hostname"])
     ps = [ssh_commands.command_ssh(n["hostname"], "./smc_unpack_code.py", fire_off=True) for n in nodes[0:1]]
     waitall(ps, "running smc_unpack_code.py on the first node. Try looking at \"s tail %s\"" % nodes[0]["hostname"])
     ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":pickled-function-call.pkl", fire_off=True) for n in nodes]
     waitall(ps, "copying pickled startup function call")
     # ps = [ssh_commands.command_ssh(n["hostname"], "nohup 2>&1 mpirun -n 8 -f mpihosts python smc_run_task.py | tee --append ~/output.log &", fire_off=True) for n in nodes]
-    ps = [ssh_commands.command_ssh(n["hostname"],
-        'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
-        fire_off=True) for n in nodes[0:1]]
+    if len(nodes) > 1:
+        ps = [ssh_commands.command_ssh(n["hostname"],
+            'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+            fire_off=True) for n in nodes[0:1]]
+    else:
+        ps = [ssh_commands.command_ssh(n["hostname"],
+            'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+            fire_off=True) for n in nodes[0:1]]
     waitall(ps, "starting smc_run_task.py on the first node")

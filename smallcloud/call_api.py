@@ -4,7 +4,7 @@ import urllib.request
 import urllib.error
 
 
-def fetch_json(url, post_json=None, get_params=None, headers={}):
+def fetch_json(url, post_json=None, get_params=None, headers={}, ok_retcodes=[]):
     t0 = time.time()
     try:
         if get_params is not None:
@@ -28,7 +28,7 @@ def fetch_json(url, post_json=None, get_params=None, headers={}):
         print("Response from server is not a json:")
         print(result.decode("utf-8"))
         quit(1)
-    if "retcode" in j and j["retcode"] not in ["OK", "WAIT"]:
+    if "retcode" in j and j["retcode"] not in (["OK"] + ok_retcodes):
         print(termcolor.colored(j["retcode"], "red"), j["human_readable_message"])
         quit(1)
     return j
