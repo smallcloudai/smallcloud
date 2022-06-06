@@ -77,14 +77,13 @@ def launch_task(
     if offline_code_zip:
         post_json["file_pkl"] = upload_file(pickle_filename)
         post_json["file_zip"] = upload_file(cached_code_to_zip())
-    else:
-        zip_filename = cached_code_to_zip()
 
     ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers())
     call_api.pretty_print_response(ret)
 
     if offline_code_zip:
         return
+    zip_filename = cached_code_to_zip()
     while 1:
         time.sleep(3)
         r = call_api.fetch_json(config.v1_url + "task-nodes", get_params={"task_name": task_name}, headers=config.account_and_secret_key_headers())
@@ -108,5 +107,10 @@ def launch_task(
     waitall(ps, "copying code.7z to the first node")
     ps = [ssh_commands.command_ssh(n["hostname"], "./smc_unpack_code.py", fire_off=True) for n in nodes[0:1]]
     waitall(ps, "running smc_unpack_code.py on the first node. Try looking at \"s tail %s\"" % nodes[0]["hostname"])
-    ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":", fire_off=True) for n in nodes]
+    ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":pickled-function-call.pkl", fire_off=True) for n in nodes]
     waitall(ps, "copying pickled startup function call")
+    # ps = [ssh_commands.command_ssh(n["hostname"], "nohup 2>&1 mpirun -n 8 -f mpihosts python smc_run_task.py | tee --append ~/output.log &", fire_off=True) for n in nodes]
+    ps = [ssh_commands.command_ssh(n["hostname"],
+        'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+        fire_off=True) for n in nodes[0:1]]
+    waitall(ps, "starting smc_run_task.py on the first node")
