@@ -41,13 +41,16 @@ def launch_task(
     args: List[Any] = [],
     kwargs: Dict[str, Any] = {},
     gpu_type="a5000",  # or more specifically cluster/gpu_type, "ant/a5000"
-    gpus: int = 0,
-    shutdown: str = "auto",  # "always", "never", "auto" doesn't shutdown if there's an error so you can look at the logs.
+    gpus: Optional[int] = None,
+    gpus_min: Optional[int] = None,
+    gpus_max: Optional[int] = None,
+    gpus_incr: int = 8,
     nice: int = 1,  # 0 preempts others, 1 normal, 2 low
     os_image: str = "",
     env: Dict[str, str] = {},
-    offline_code_zip: bool = False,
+    pre_upload_code_zip: bool = False,  # Uploads code to cloud first (stored on our servers), otherwise uploads code after the task is started (good for privacy)
     kill_upload_start: bool = False,
+    force_node: str = "",
     call_function_directly: Optional[bool] = None,
 ):
     if call_function_directly or (call_function_directly is None and config.already_running_in_cloud):
@@ -63,20 +66,26 @@ def launch_task(
         "training_function": training_function,
         "args": args,
         "kwargs": kwargs,
-        "shutdown": shutdown,
         "env": {"TASK_NAME": task_name, **env},
         }, open(pickle_filename, "wb"))
     post_json = {
     "task_name": task_name,
     "tenant_image": os_image,
     "gpu_type": gpu_type,
-    "gpu_min": int(gpus),
-    "gpu_max": int(gpus),
-    "gpus_incr": 1,
     "nice": nice,
+    "force_node": force_node,
     }
-    if offline_code_zip:
-        assert 0, "Not implemented"
+    if gpus is not None:
+        assert gpus_min is None and gpus_max is None
+        post_json["gpus_min"] = gpus
+        post_json["gpus_max"] = gpus
+    else:
+        assert gpus is None
+        assert gpus_min is not None and gpus_max is not None, "Please set either gpus or gpus_min/gpus_max"
+        post_json["gpus_min"] = gpus_min
+        post_json["gpus_max"] = gpus_max
+        post_json["gpus_incr"] = gpus_incr
+    if pre_upload_code_zip:
         post_json["file_pkl"] = upload_file(pickle_filename)
         post_json["file_zip"] = upload_file(cached_code_to_zip())
 
@@ -87,7 +96,7 @@ def launch_task(
         return
     kus = ret["retcode"] == "RUNNING"
 
-    if offline_code_zip:
+    if pre_upload_code_zip:
         return
     if not kus:
         zip_filename = cached_code_to_zip()
@@ -135,3 +144,10 @@ def launch_task(
             'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
             fire_off=True) for n in nodes[0:1]]
     waitall(ps, "starting smc_run_task.py on the first node")
+
+
+def shutdown():
+    """
+    Call this inside container to free up the node.
+    """
+    open("/tmp/shutdown-container", "a").close()
