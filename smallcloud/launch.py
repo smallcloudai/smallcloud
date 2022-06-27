@@ -49,6 +49,7 @@ def launch_task(
     os_image: str = "",
     env: Dict[str, str] = {},
     pre_upload_code_zip: bool = False,  # Uploads code to cloud first (stored on our servers), otherwise uploads code after the task is started (good for privacy)
+    hold_off_start: bool = False,       # Useful for debugging: set up everything, but don't start the task so you can start it under a debugger
     kill_upload_start: bool = False,
     force_node: str = "",
     call_function_directly: Optional[bool] = None,
@@ -61,19 +62,25 @@ def launch_task(
         return
     config.read_config_file()
     os.makedirs("/tmp/smc-temp", exist_ok=True)
-    pickle_filename = f"/tmp/smc-temp/pickle-call-{task_name}.pkl"
-    cloudpickle.dump({
-        "training_function": training_function,
-        "args": args,
-        "kwargs": kwargs,
-        "env": {"TASK_NAME": task_name, **env},
-        }, open(pickle_filename, "wb"))
+
+    if not hold_off_start:
+        pickle_filename = f"/tmp/smc-temp/pickle-call-{task_name}.pkl"
+        cloudpickle.dump({
+            "training_function": training_function,
+            "args": args,
+            "kwargs": kwargs,
+            "env": {"TASK_NAME": task_name, **env},
+            }, open(pickle_filename, "wb"))
+    else:
+        # Run the same script manually -- it will work without .pkl machinery, by calling function directly (see 'already_running_in_cloud' above).
+        pickle_filename = ""
+
     post_json = {
-    "task_name": task_name,
-    "tenant_image": os_image,
-    "gpu_type": gpu_type,
-    "nice": nice,
-    "force_node": force_node,
+        "task_name": task_name,
+        "tenant_image": os_image,
+        "gpu_type": gpu_type,
+        "nice": nice,
+        "force_node": force_node,
     }
     if gpus is not None:
         assert gpus_min is None and gpus_max is None
@@ -86,7 +93,7 @@ def launch_task(
         post_json["gpus_max"] = gpus_max
         post_json["gpus_incr"] = gpus_incr
     if pre_upload_code_zip:
-        post_json["file_pkl"] = upload_file(pickle_filename)
+        post_json["file_pkl"] = upload_file(pickle_filename) if pickle_filename else ""
         post_json["file_zip"] = upload_file(cached_code_to_zip())
 
     ret = call_api.fetch_json(config.v1_url + "reserve", post_json, headers=config.account_and_secret_key_headers(), ok_retcodes=["RUNNING"])
@@ -96,7 +103,7 @@ def launch_task(
         return
     kus = ret["retcode"] == "RUNNING"
 
-    if pre_upload_code_zip:
+    if pre_upload_code_zip and not kus:
         return
     if not kus:
         zip_filename = cached_code_to_zip()
@@ -132,18 +139,19 @@ def launch_task(
         ssh_commands.command_upload_code(nodes[0]["hostname"])
     ps = [ssh_commands.command_ssh(n["hostname"], "./smc_unpack_code.py", fire_off=True) for n in nodes[0:1]]
     waitall(ps, "running smc_unpack_code.py on the first node. Try looking at \"s tail %s\"" % nodes[0]["hostname"])
-    ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":pickled-function-call.pkl", fire_off=True) for n in nodes]
-    waitall(ps, "copying pickled startup function call")
-    # ps = [ssh_commands.command_ssh(n["hostname"], "nohup 2>&1 mpirun -n 8 -f mpihosts python smc_run_task.py | tee --append ~/output.log &", fire_off=True) for n in nodes]
-    if len(nodes) > 1:
-        ps = [ssh_commands.command_ssh(n["hostname"],
-            'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
-            fire_off=True) for n in nodes[0:1]]
-    else:
-        ps = [ssh_commands.command_ssh(n["hostname"],
-            'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
-            fire_off=True) for n in nodes[0:1]]
-    waitall(ps, "starting smc_run_task.py on the first node")
+    if not hold_off_start:
+        ps = [ssh_commands.command_scp(pickle_filename, n["hostname"] + ":pickled-function-call.pkl", fire_off=True) for n in nodes]
+        waitall(ps, "copying pickled startup function call")
+        # ps = [ssh_commands.command_ssh(n["hostname"], "nohup 2>&1 mpirun -n 8 -f mpihosts python smc_run_task.py | tee --append ~/output.log &", fire_off=True) for n in nodes]
+        if len(nodes) > 1:
+            ps = [ssh_commands.command_ssh(n["hostname"],
+                'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+                fire_off=True) for n in nodes[0:1]]
+        else:
+            ps = [ssh_commands.command_ssh(n["hostname"],
+                'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+                fire_off=True) for n in nodes[0:1]]
+        waitall(ps, "starting smc_run_task.py on the first node")
 
 
 def shutdown():
