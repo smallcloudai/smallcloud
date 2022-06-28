@@ -4,7 +4,7 @@ setup(
     name="smallcloud",
     py_modules=["smallcloud"],
     packages=["smallcloud"],
-    version="0.2.2",
+    version="0.2.3",
     url="https://github.com/smallcloudai/smallcloud",
     summary="Command line tool to access smallcloud.ai services",
     description="Run your GPU-intensive tasks using this command line tool / Python library",
