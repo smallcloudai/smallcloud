@@ -94,11 +94,11 @@ def command_reserve(*args):
     parser_reserve.add_argument("--os", help="Operating system")
     parser_reserve.add_argument("--force-node", help=argparse.SUPPRESS)
     args = parser.parse_args(("reserve",) + args)
-    gpu_min = args.count
+    gpus_min = args.count
     post_json = {
         "task_name": args.job_name,
         "gpu_type": args.gpu_type,
-        "gpu_min": int(gpu_min),
+        "gpus_min": int(gpus_min),
         "force_node": args.force_node,
         }
     if args.os:
