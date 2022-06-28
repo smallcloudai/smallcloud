@@ -67,7 +67,10 @@ def completions_upload_result(
     text: List[str],          # updated text in those indexes
     finish_reason: List[str], # empty if not finished yet
     tokens: Optional[List[int]] = None,
+    more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
 ):
+    if more_toplevel_fields is None:
+        more_toplevel_fields = [{}]*len(text)
     upload_dict = copy.deepcopy(description_dict)
     upload_dict["ts_batch_started"] = ts_batch_started
     upload_dict["ts_batch_finished"] = ts_batch_finished
@@ -85,6 +88,7 @@ def completions_upload_result(
                 },
             ],
             "status": status,
+            "more_toplevel_fields": more_toplevel_fields[b],
         }
         for b in idx_updated
     }
