@@ -149,7 +149,7 @@ def launch_task(
                 fire_off=True) for n in nodes[0:1]]
         else:
             ps = [ssh_commands.command_ssh(n["hostname"],
-                'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+                'bash --login -c "nohup mpirun -n GPUS ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus or gpus_min)),
                 fire_off=True) for n in nodes[0:1]]
         waitall(ps, "starting smc_run_task.py on the first node")
 
