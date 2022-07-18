@@ -145,7 +145,7 @@ def launch_task(
         # ps = [ssh_commands.command_ssh(n["hostname"], "nohup 2>&1 mpirun -n 8 -f mpihosts python smc_run_task.py | tee --append ~/output.log &", fire_off=True) for n in nodes]
         if len(nodes) > 1:
             ps = [ssh_commands.command_ssh(n["hostname"],
-                'bash --login -c "nohup mpirun -n GPUS -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"'.replace("GPUS", str(gpus)),
+                'bash --login -c "nohup mpirun -f mpihosts ./smc_run_task.py >> ~/output.log 2>&1 &"',
                 fire_off=True) for n in nodes[0:1]]
         else:
             ps = [ssh_commands.command_ssh(n["hostname"],
