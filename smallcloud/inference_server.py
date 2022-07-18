@@ -62,36 +62,34 @@ def completions_upload_result(
     original_batch: Dict[str, Any],
     ts_batch_started: float,
     ts_batch_finished: float,
-    status: str,              # "in_progress", "completed"
-    idx_updated: List[int],   # batch indexes where you have progress
-    text: List[str],          # updated text in those indexes
-    finish_reason: List[str], # empty if not finished yet
+    status: str,                  # "in_progress", "completed"
+    idx_updated: List[int],       # batch indexes where you have progress
+    files: List[Dict[str, str]], # updated text in those indexes
+    finish_reason: List[str],    # empty if not finished yet
     tokens: Optional[List[int]] = None,
     more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
 ):
-    if more_toplevel_fields is None:
-        more_toplevel_fields = [{}]*len(text)
     upload_dict = copy.deepcopy(description_dict)
     upload_dict["ts_batch_started"] = ts_batch_started
     upload_dict["ts_batch_finished"] = ts_batch_finished
-    upload_dict["progress"] = {
-        original_batch[b]["id"]: {
+    progress = dict()
+    for b in idx_updated:
+        progress[original_batch[b]["id"]] = {
             "id": original_batch[b]["id"],
             "object": "text_completion",
             "choices": [
                 {
                     "index": 0,
-                    "text": text[b],
-                    "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
+                    "files": files[b],
+                    # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
                     "logprobs": None,
                     "finish_reason": finish_reason[b]
                 },
             ],
             "status": status,
-            "more_toplevel_fields": more_toplevel_fields[b],
+            "more_toplevel_fields": (more_toplevel_fields[b] if more_toplevel_fields is None else dict())
         }
-        for b in idx_updated
-    }
+    upload_dict["progress"] = progress
     q.put(copy.deepcopy(upload_dict))
     return upload_dict
 
