@@ -24,35 +24,36 @@ def default_session() -> requests.Session:
     return _dsess
 
 
-def completions(
+def nlp_model_call(
+    endpoint: str,
     model: str,
-    prompt: str,
     *,
+    req_session: Optional[requests.Session]=None,
     max_tokens: int,
-    # TODO stop sequences
+    stream: bool=False,
     temperature: float,
     top_p: Optional[float]=None,
     top_n: Optional[int]=None,
-    echo: bool=False,
-    stream: bool=False,
-    req_session: Optional[requests.Session]=None,
+    # TODO stop sequences
     verbose: int=0,
+    **pass_args
 ) -> Union[Tuple[str, str], Generator[Tuple[str, str], None, None]]:
     req_session = req_session or default_session()
     assert isinstance(req_session, requests.Session)
-    url = base_url + "completions"
+    url = base_url + endpoint
     data = {
-        "prompt": prompt,
         "model": model,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": stream,
-        "echo": echo,
+        **pass_args,
     }
     if top_p is not None:
         data["top_p"] = top_p
     if top_n is not None:
         data["top_n"] = top_n
+    if verbose > 1:
+        print("POST %s" % (data,))
     resp = None
     try:
         t0 = time.time()
@@ -75,12 +76,12 @@ def completions(
             for line in resp.iter_lines(chunk_size=1):
                 if line.startswith(b"data: {"):
                     j = json.loads(line[6:].decode("utf-8"))
-                    yield j["status"], j["choices"]
+                    yield j
                 if line.startswith(b"data: [DONE]"):
                     return
         return _streamer(resp)
     if verbose > 1:
-        print(resp.text)
+        print("RESPONSE", resp.text)
     try:
         json_resp = resp.json()
     except Exception as e:
@@ -88,4 +89,4 @@ def completions(
             raise APIConnectionError("completions() json parse failed: %i\n%s" % (resp.status_code, resp.text))
         else:
             raise APIConnectionError("completions() failed: %s" % str(e))
-    return json_resp["status"], json_resp["choices"]
+    return json_resp

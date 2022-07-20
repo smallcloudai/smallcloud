@@ -87,7 +87,7 @@ def completions_upload_result(
                 },
             ],
             "status": status,
-            "more_toplevel_fields": (more_toplevel_fields[b] if more_toplevel_fields is None else dict())
+            "more_toplevel_fields": (more_toplevel_fields[b] if more_toplevel_fields is not None else dict())
         }
     upload_dict["progress"] = progress
     q.put(copy.deepcopy(upload_dict))
