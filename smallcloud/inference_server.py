@@ -73,21 +73,21 @@ def completions_upload_result(
     upload_dict["ts_batch_started"] = ts_batch_started
     upload_dict["ts_batch_finished"] = ts_batch_finished
     progress = dict()
-    for b in idx_updated:
+    for i, b in enumerate(idx_updated):
         progress[original_batch[b]["id"]] = {
             "id": original_batch[b]["id"],
             "object": "text_completion",
             "choices": [
                 {
                     "index": 0,
-                    "files": files[b],
+                    "files": files[i],
                     # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
                     "logprobs": None,
-                    "finish_reason": finish_reason[b]
+                    "finish_reason": finish_reason[i]
                 },
             ],
             "status": status,
-            "more_toplevel_fields": (more_toplevel_fields[b] if more_toplevel_fields is not None else dict())
+            "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict())
         }
     upload_dict["progress"] = progress
     q.put(copy.deepcopy(upload_dict))
