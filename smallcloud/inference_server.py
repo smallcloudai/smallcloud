@@ -1,9 +1,26 @@
 import json, re, requests, time, datetime, termcolor, multiprocessing, copy
 from typing import Dict, Any, List, Optional
-import traces
 
 
-url_base = "https://inference.smallcloud.ai/infengine-v1/"
+url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
+url_base2 = "https://staging.smallcloud.ai/infengine-v1/"
+urls_to_try = [url_base1, url_base2]
+
+urls_switch_n = 0
+urls_switch_ts = time.time()
+
+
+def url_get_the_best():
+    global urls_switch_n, urls_switch_ts
+    if time.time() > urls_switch_ts + 600:
+        urls_switch_n = 0
+    return urls_to_try[urls_switch_n]
+
+
+def url_complain_doesnt_work():
+    global urls_switch_n, urls_switch_ts
+    urls_switch_n = (urls_switch_n + 1) % len(urls_to_try)
+    urls_switch_ts = time.time()
 
 
 def model_guid_allowed_characters(name):
@@ -35,24 +52,36 @@ def validate_description_dict(
 
 def completions_wait_batch(req_session, my_desc, verbose=False):
     t0 = time.time()
-    url = url_base + "completions-wait-batch"
     resp = None
-    try:
-        resp = req_session.post(url, json=my_desc)
-        json_resp = resp.json()
-    except Exception as e:
-        traces.log("fetch batch failed: %s" % str(e))
-        if resp is not None:
-            traces.log("server response text:\n%s" % (resp.text,))
-        return "ERROR", []
-    if resp.status_code != 200:
-        traces.log("%s status_code %i %s" % (url, resp.status_code, resp.text))
+    json_resp = None
+    for attempt in range(5):
+        url = url_get_the_best() + "completions-wait-batch"
+        try:
+            resp = req_session.post(url, json=my_desc, timeout=15)
+            json_resp = resp.json()
+        except requests.exceptions.ReadTimeout as e:
+            t1 = time.time()
+            hms = datetime.datetime.now().strftime("%H%M%S.%f")
+            print("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
+            url_complain_doesnt_work()
+        except Exception as e:
+            print("%s fetch batch failed: %s %s" % (url, str(type(e)), str(e)))
+            # if resp is not None:
+            #     print("server response text:\n%s" % (resp.text,))
+            url_complain_doesnt_work()
+            continue
+        if resp.status_code != 200:
+            print("%s status_code %i %s" % (url, resp.status_code, resp.text))
+            url_complain_doesnt_work()
+            continue
+        break
+    if json_resp is None:
         return "ERROR", []
     t1 = time.time()
     hms = datetime.datetime.now().strftime("%H%M%S.%f")
-    traces.log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp["retcode"], "green")))
+    print("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp["retcode"], "green")))
     if verbose:
-        traces.log("%s %s" % (url, json.dumps(json_resp, indent=4)))
+        print("%s %s" % (url, json.dumps(json_resp, indent=4)))
     return json_resp["retcode"], json_resp.get("batch", [])
 
 
@@ -135,17 +164,29 @@ def _upload_results_loop(q: multiprocessing.Queue):
                 upload_dict["progress"].update(maybe_pile_up["progress"])
                 upload_dict["ts_batch_finished"] = maybe_pile_up["ts_batch_finished"]
 
-        url = url_base + "completion-upload-results"
         resp = None
-        try:
-            t2 = time.time()
-            resp = req_session.post(url, json=upload_dict)
-            t3 = time.time()
-            hms = datetime.datetime.now().strftime("%H%M%S.%f")
-            traces.log("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored(resp.json()["retcode"], "green")))
+        t2 = time.time()
+        for attempt in range(5):
+            try:
+                url = url_get_the_best() + "completion-upload-results"
+                resp = req_session.post(url, json=upload_dict, timeout=2)
+            except requests.exceptions.ReadTimeout as e:
+                t3 = time.time()
+                hms = datetime.datetime.now().strftime("%H%M%S.%f")
+                print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                url_complain_doesnt_work()
+                continue
+            except Exception as e:
+                print("%s post response failed: %s" % (url, str(e)))
+                #if resp is not None:
+                #    print("server response text:\n%s" % (resp.text,))
+                url_complain_doesnt_work()
+                continue
             if resp.status_code != 200:
-                traces.log("post response failed: %i %s" % (resp.status_code, resp.text))
-        except Exception as e:
-            traces.log("post response failed: %s" % str(e))
-            if resp is not None:
-                traces.log("server response text:\n%s" % (resp.text,))
+                print("%s post response failed: %i %s" % (url, resp.status_code, resp.text))
+                url_complain_doesnt_work()
+                continue
+            break
+        t3 = time.time()
+        hms = datetime.datetime.now().strftime("%H%M%S.%f")
+        print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored(resp.json()["retcode"], "green")))
