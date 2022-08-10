@@ -64,6 +64,7 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             hms = datetime.datetime.now().strftime("%H%M%S.%f")
             print("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
             url_complain_doesnt_work()
+            continue
         except Exception as e:
             print("%s fetch batch failed: %s %s" % (url, str(type(e)), str(e)))
             # if resp is not None:
