@@ -1,5 +1,5 @@
 import json, re, requests, time, datetime, termcolor, multiprocessing, copy
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 
 
 url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
@@ -86,64 +86,74 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
     return json_resp["retcode"], json_resp.get("batch", [])
 
 
-def completions_upload_result(
-    q,
-    description_dict: Dict[str, Any],
-    original_batch: Dict[str, Any],
-    ts_batch_started: float,
-    ts_batch_finished: float,
-    status: str,                  # "in_progress", "completed"
-    idx_updated: List[int],       # batch indexes where you have progress
-    files: List[Dict[str, str]], # updated text in those indexes
-    finish_reason: List[str],    # empty if not finished yet
-    tokens: Optional[List[int]] = None,
-    more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
-):
-    upload_dict = copy.deepcopy(description_dict)
-    upload_dict["ts_batch_started"] = ts_batch_started
-    upload_dict["ts_batch_finished"] = ts_batch_finished
-    progress = dict()
-    for i, b in enumerate(idx_updated):
-        progress[original_batch[b]["id"]] = {
-            "id": original_batch[b]["id"],
-            "object": "text_completion",
-            "choices": [
-                {
-                    "index": 0,
-                    "files": files[i],
-                    # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
-                    "logprobs": None,
-                    "finish_reason": finish_reason[i]
-                },
-            ],
-            "status": status,
-            "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict())
-        }
-    upload_dict["progress"] = progress
-    q.put(copy.deepcopy(upload_dict))
-    return upload_dict
+class UploadProxy:
+    def __init__(self):
+        self.upload_q = multiprocessing.Queue()
+        self.cancelled_q = multiprocessing.Queue()
+        self.proc = multiprocessing.Process(
+            target=_upload_results_loop,
+            args=(self.upload_q, self.cancelled_q),
+            )
+        self.proc.start()
+        self._cancelled: Set[str] = set()
+
+    def stop(self):
+        if self.proc:
+            self.upload_q.put(dict(exit=1))
+            self.proc.join()
+            self.proc = None
+
+    def __del__(self):
+        self.stop()
+
+    def cancelled_reset(self):
+        self._cancelled = set()
+
+    def upload_result(
+        self,
+        description_dict: Dict[str, Any],
+        original_batch: Dict[str, Any],
+        ts_batch_started: float,
+        ts_batch_finished: float,
+        status: str,                  # "in_progress", "completed"
+        idx_updated: List[int],       # batch indexes where you have progress
+        files: List[Dict[str, str]],  # updated text in those indexes
+        finish_reason: List[str],     # empty if not finished yet
+        tokens: Optional[List[int]] = None,
+        more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
+    ):
+        upload_dict = copy.deepcopy(description_dict)
+        upload_dict["ts_batch_started"] = ts_batch_started
+        upload_dict["ts_batch_finished"] = ts_batch_finished
+        progress = dict()
+        for i, b in enumerate(idx_updated):
+            progress[original_batch[b]["id"]] = {
+                "id": original_batch[b]["id"],
+                "object": "text_completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "files": files[i],
+                        # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
+                        "logprobs": None,
+                        "finish_reason": finish_reason[i]
+                    },
+                ],
+                "status": status,
+                "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict())
+            }
+        upload_dict["progress"] = progress
+        self.upload_q.put(copy.deepcopy(upload_dict))
+        while not self.cancelled_q.empty():
+            self._cancelled.add(self.cancelled_q.get())
+        return self._cancelled
 
 
-def start_separate_upload_process():
-    q = multiprocessing.Queue()
-    proc = multiprocessing.Process(
-        target=_upload_results_loop,
-        args=(q,),
-        )
-    proc.start()
-    return proc, q
-
-
-def stop_separate_upload_process(proc, q):
-    q.put(dict(exit=1))
-    proc.join()
-
-
-def _upload_results_loop(q: multiprocessing.Queue):
+def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiprocessing.Queue):
     req_session = requests.Session()
     exit_flag = False
     while not exit_flag:
-        upload_dict = q.get()
+        upload_dict = upload_q.get()
         if "exit" in upload_dict:
             exit_flag = True
         t1 = time.time()
@@ -151,7 +161,7 @@ def _upload_results_loop(q: multiprocessing.Queue):
             if upload_dict.get("ts_batch_finished", 0) > 0:
                 # Send ASAP
                 break
-            maybe_pile_up = q.get() if not q.empty() else None
+            maybe_pile_up = upload_q.get() if not upload_q.empty() else None
             if maybe_pile_up is None:
                 if time.time() < t1 + 0.5:
                     # Normally send every ~0.5 seconds
@@ -167,10 +177,11 @@ def _upload_results_loop(q: multiprocessing.Queue):
 
         resp = None
         t2 = time.time()
-        for attempt in range(5):
+        for _attempt in range(5):
             try:
                 url = url_get_the_best() + "completion-upload-results"
                 resp = req_session.post(url, json=upload_dict, timeout=2)
+                j = resp.json()
             except requests.exceptions.ReadTimeout as e:
                 t3 = time.time()
                 hms = datetime.datetime.now().strftime("%H%M%S.%f")
@@ -184,10 +195,13 @@ def _upload_results_loop(q: multiprocessing.Queue):
                 url_complain_doesnt_work()
                 continue
             if resp.status_code != 200:
-                print("%s post response failed: %i %s" % (url, resp.status_code, resp.text))
+                print("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:100]))
                 url_complain_doesnt_work()
                 continue
             break
         t3 = time.time()
         hms = datetime.datetime.now().strftime("%H%M%S.%f")
-        print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored(resp.json()["retcode"], "green")))
+        print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored(j["retcode"], "green")))
+        # print("%s" % (json.dumps(j["cancelled"], indent=4)))
+        for can in j["cancelled"]:
+            cancelled_q.put(can)
