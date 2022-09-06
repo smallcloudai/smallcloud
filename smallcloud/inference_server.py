@@ -1,13 +1,18 @@
-import json, re, requests, time, datetime, termcolor, multiprocessing, copy
+import sys, json, re, requests, time, datetime, termcolor, multiprocessing, copy
 from typing import Dict, Any, List, Optional, Set
 
 
 url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
-url_base2 = "https://staging.smallcloud.ai/infengine-v1/"
-urls_to_try = [url_base1, url_base2]
+url_base2 = "https://inference-backup.smallcloud.ai/infengine-v1/"
+urls_to_try = [url_base2, url_base1]
 
 urls_switch_n = 0
 urls_switch_ts = time.time()
+
+
+def log(*args):
+    sys.stderr.write(" ".join([str(x) for x in args]) + "\n")
+    sys.stderr.flush()
 
 
 def url_get_the_best():
@@ -61,38 +66,39 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             json_resp = resp.json()
         except requests.exceptions.ReadTimeout as e:
             t1 = time.time()
-            hms = datetime.datetime.now().strftime("%H%M%S.%f")
-            print("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
+            log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
             url_complain_doesnt_work()
             continue
         except Exception as e:
-            print("%s fetch batch failed: %s %s" % (url, str(type(e)), str(e)))
+            log("%s fetch batch failed: %s %s" % (url, str(type(e)), str(e)))
             # if resp is not None:
-            #     print("server response text:\n%s" % (resp.text,))
+            #     log("server response text:\n%s" % (resp.text,))
             url_complain_doesnt_work()
             continue
         if resp.status_code != 200:
-            print("%s status_code %i %s" % (url, resp.status_code, resp.text))
+            log("%s status_code %i %s" % (url, resp.status_code, resp.text))
             url_complain_doesnt_work()
             continue
         break
     if json_resp is None:
         return "ERROR", []
     t1 = time.time()
-    hms = datetime.datetime.now().strftime("%H%M%S.%f")
-    print("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp["retcode"], "green")))
+    hms = datetime.datetime.now().strftime("%H:%M:%S.%f")
+    log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp["retcode"], "green")))
     if verbose:
-        print("%s %s" % (url, json.dumps(json_resp, indent=4)))
+        log("%s %s" % (url, json.dumps(json_resp, indent=4)))
     return json_resp["retcode"], json_resp.get("batch", [])
 
 
 class UploadProxy:
     def __init__(self):
+        multiprocessing.set_start_method("spawn")
         self.upload_q = multiprocessing.Queue()
         self.cancelled_q = multiprocessing.Queue()
         self.proc = multiprocessing.Process(
             target=_upload_results_loop,
             args=(self.upload_q, self.cancelled_q),
+            name="upload_results",
             )
         self.proc.start()
         self._cancelled: Set[str] = set()
@@ -148,14 +154,25 @@ class UploadProxy:
             self._cancelled.add(self.cancelled_q.get())
         return self._cancelled
 
+    def keepalive(self):
+        self.upload_q.put(dict(keepalive=1))
+
 
 def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiprocessing.Queue):
     req_session = requests.Session()
     exit_flag = False
     while not exit_flag:
-        upload_dict = upload_q.get()
+        try:
+            upload_dict = upload_q.get(timeout=600)
+        except multiprocessing.Empty as e:
+            log("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop timeout, exiting", "red")))
+            exit_flag = True
+            continue
         if "exit" in upload_dict:
             exit_flag = True
+            break
+        if "progress" not in upload_dict:
+            continue
         t1 = time.time()
         while 1:
             if upload_dict.get("ts_batch_finished", 0) > 0:
@@ -174,7 +191,6 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
             if "progress" in maybe_pile_up:
                 upload_dict["progress"].update(maybe_pile_up["progress"])
                 upload_dict["ts_batch_finished"] = maybe_pile_up["ts_batch_finished"]
-
         resp = None
         t2 = time.time()
         for _attempt in range(5):
@@ -184,24 +200,30 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 j = resp.json()
             except requests.exceptions.ReadTimeout as e:
                 t3 = time.time()
-                hms = datetime.datetime.now().strftime("%H%M%S.%f")
-                print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
                 url_complain_doesnt_work()
                 continue
             except Exception as e:
-                print("%s post response failed: %s" % (url, str(e)))
+                log("%s post response failed: %s" % (url, str(e)))
                 #if resp is not None:
-                #    print("server response text:\n%s" % (resp.text,))
+                #    log("server response text:\n%s" % (resp.text,))
                 url_complain_doesnt_work()
                 continue
             if resp.status_code != 200:
-                print("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:100]))
+                log("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:100]))
                 url_complain_doesnt_work()
                 continue
             break
         t3 = time.time()
-        hms = datetime.datetime.now().strftime("%H%M%S.%f")
-        print("%s %0.1fms %s %s" % (hms, 1000*(t3 - t2), url, termcolor.colored(j["retcode"], "green")))
-        # print("%s" % (json.dumps(j["cancelled"], indent=4)))
-        for can in j["cancelled"]:
-            cancelled_q.put(can)
+        cancelled_n = 0
+        if "cancelled" in j:
+            for can in j["cancelled"]:
+                cancelled_q.put(can)
+                cancelled_n += 1
+        log("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
+            termcolor.colored("%0.1fms" % (1000*(t3 - t2),), "green"),
+            url,
+            termcolor.colored(j.get("retcode", -1), "green"),
+            len(upload_dict["progress"]),
+            cancelled_n,
+            ))
