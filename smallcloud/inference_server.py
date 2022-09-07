@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional, Set
 
 url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
 url_base2 = "https://inference-backup.smallcloud.ai/infengine-v1/"
-urls_to_try = [url_base2, url_base1]
+urls_to_try = [url_base1, url_base2]
 
 urls_switch_n = 0
 urls_switch_ts = time.time()
@@ -127,6 +127,7 @@ class UploadProxy:
         finish_reason: List[str],     # empty if not finished yet
         tokens: Optional[List[int]] = None,
         more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
+        generated_tokens_n: Optional[List[int]] = None,
     ):
         upload_dict = copy.deepcopy(description_dict)
         upload_dict["ts_batch_started"] = ts_batch_started
@@ -146,7 +147,8 @@ class UploadProxy:
                     },
                 ],
                 "status": status,
-                "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict())
+                "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
+                "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
         upload_dict["progress"] = progress
         self.upload_q.put(copy.deepcopy(upload_dict))
