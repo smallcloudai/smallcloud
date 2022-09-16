@@ -1,4 +1,4 @@
-import sys, json, re, requests, time, datetime, termcolor, multiprocessing, copy
+import sys, json, re, requests, time, datetime, termcolor, multiprocessing, copy, queue
 from typing import Dict, Any, List, Optional, Set
 
 
@@ -166,7 +166,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
     while not exit_flag:
         try:
             upload_dict = upload_q.get(timeout=600)
-        except multiprocessing.Empty as e:
+        except queue.Empty as e:
             log("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop timeout, exiting", "red")))
             exit_flag = True
             continue
