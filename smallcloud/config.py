@@ -37,8 +37,7 @@ def account_and_secret_key_headers():
     if not username:
         return {}   # some commands work without login
     return {
-        "X-Account": username,
-        "X-Secret-API-Key": secret_api_key,
+        "Authorization": "Bearer " + secret_api_key,
     }
 
 
