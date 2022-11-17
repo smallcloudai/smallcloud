@@ -113,6 +113,8 @@ class UploadProxy:
         self.stop()
 
     def cancelled_reset(self):
+        while not self.cancelled_q.empty():
+            self._cancelled.add(self.cancelled_q.get())
         self._cancelled = set()
 
     def upload_result(
@@ -151,13 +153,16 @@ class UploadProxy:
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
         upload_dict["progress"] = progress
+        upload_dict["check_cancelled"] = [call["id"] for call in original_batch]
         self.upload_q.put(copy.deepcopy(upload_dict))
-        while not self.cancelled_q.empty():
-            self._cancelled.add(self.cancelled_q.get())
-        return self._cancelled
 
     def keepalive(self):
         self.upload_q.put(dict(keepalive=1))
+
+    def check_cancelled(self):
+        while not self.cancelled_q.empty():
+            self._cancelled.add(self.cancelled_q.get())
+        return self._cancelled
 
 
 def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiprocessing.Queue):
@@ -212,7 +217,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 url_complain_doesnt_work()
                 continue
             if resp.status_code != 200:
-                log("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:100]))
+                log("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:150]))
                 url_complain_doesnt_work()
                 continue
             break
