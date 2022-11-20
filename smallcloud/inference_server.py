@@ -70,12 +70,12 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             url_complain_doesnt_work()
             continue
         except Exception as e:
-            log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150]))
+            log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150] if resp else "no response"))
             # if resp is not None:
             #     log("server response text:\n%s" % (resp.text,))
             url_complain_doesnt_work()
             continue
-        if resp.status_code != 200:
+        if resp and resp.status_code != 200:
             log("%s status_code %i %s" % (url, resp.status_code, resp.text))
             url_complain_doesnt_work()
             continue
@@ -212,12 +212,12 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 url_complain_doesnt_work()
                 continue
             except Exception as e:
-                log("%s post response failed: %s" % (url, str(e)))
+                log("%s post response failed: %s\nServer response was: \"%s\"" % (url, str(e), resp.text[:150] if resp else "no response"))
                 #if resp is not None:
                 #    log("server response text:\n%s" % (resp.text,))
                 url_complain_doesnt_work()
                 continue
-            if resp.status_code != 200:
+            if resp and resp.status_code != 200:
                 log("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:150]))
                 url_complain_doesnt_work()
                 continue
