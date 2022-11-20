@@ -70,7 +70,7 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             url_complain_doesnt_work()
             continue
         except Exception as e:
-            log("%s fetch batch failed: %s %s" % (url, str(type(e)), str(e)))
+            log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150]))
             # if resp is not None:
             #     log("server response text:\n%s" % (resp.text,))
             url_complain_doesnt_work()
@@ -149,6 +149,7 @@ class UploadProxy:
                     },
                 ],
                 "status": status,
+                "created": original_batch[b]["created"],
                 "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
