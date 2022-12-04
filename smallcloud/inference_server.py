@@ -155,6 +155,7 @@ class UploadProxy:
             }
         upload_dict["progress"] = progress
         upload_dict["check_cancelled"] = [call["id"] for call in original_batch]
+        upload_dict["model_name"] = description_dict["model"]
         self.upload_q.put(copy.deepcopy(upload_dict))
 
     def keepalive(self):
@@ -231,7 +232,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
         log("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
             termcolor.colored("%0.1fms" % (1000*(t3 - t2),), "green"),
             url,
-            termcolor.colored(j.get("retcode", -1), "green"),
+            j.get("retcode", "FAIL"),
             len(upload_dict["progress"]),
             cancelled_n,
             ))
