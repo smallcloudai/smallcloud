@@ -56,10 +56,10 @@ def validate_description_dict(
 
 
 def completions_wait_batch(req_session, my_desc, verbose=False):
-    t0 = time.time()
     resp = None
     json_resp = None
     for attempt in range(5):
+        t0 = time.time()
         url = url_get_the_best() + "completions-wait-batch"
         try:
             resp = req_session.post(url, json=my_desc, timeout=15)
@@ -121,8 +121,7 @@ class UploadProxy:
         self,
         description_dict: Dict[str, Any],
         original_batch: Dict[str, Any],
-        ts_batch_started: float,
-        ts_batch_finished: float,
+        *,
         status: str,                  # "in_progress", "completed"
         idx_updated: List[int],       # batch indexes where you have progress
         files: List[Dict[str, str]],  # updated text in those indexes
@@ -130,9 +129,17 @@ class UploadProxy:
         tokens: Optional[List[int]] = None,
         more_toplevel_fields: Optional[List[Dict[str, Any]]] = None,
         generated_tokens_n: Optional[List[int]] = None,
+        ts_arrived: float,
+        ts_batch_started: float,
+        ts_prompt: float,
+        ts_first_token: float,
+        ts_batch_finished: float,
     ):
         upload_dict = copy.deepcopy(description_dict)
+        upload_dict["ts_arrived"] = ts_arrived
         upload_dict["ts_batch_started"] = ts_batch_started
+        upload_dict["ts_prompt"] = ts_prompt
+        upload_dict["ts_first_token"] = ts_first_token
         upload_dict["ts_batch_finished"] = ts_batch_finished
         progress = dict()
         for i, b in enumerate(idx_updated):
