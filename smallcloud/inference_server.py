@@ -37,17 +37,16 @@ def validate_description_dict(
     account: str,
     model: str,
     B: int,
-    T: int,
-    encoding_name: str,
     max_thinking_time: int,
+    *,
+    T: int,              # deprecated
+    encoding_name: str,  # deprecated
 ):
     return {
         "infmod_guid": model_guid_allowed_characters(infeng_instance_guid),
         "account": account,
         "model": model,
         "B": B,
-        "T": T,
-        "encoding_name": encoding_name,
         "engine_started_ts": int(time.time()),
         "ts_batch_started": 0,
         "ts_batch_finished": 0,
@@ -210,6 +209,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
         resp = None
         t2 = time.time()
         for _attempt in range(5):
+            j = dict()
             try:
                 url = url_get_the_best() + "completion-upload-results"
                 resp = req_session.post(url, json=upload_dict, timeout=2)
