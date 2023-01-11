@@ -39,8 +39,8 @@ def validate_description_dict(
     B: int,
     max_thinking_time: int,
     *,
-    T: int,              # deprecated
-    encoding_name: str,  # deprecated
+    T: int = 0,               # deprecated
+    encoding_name: str = "",  # deprecated
 ):
     return {
         "infmod_guid": model_guid_allowed_characters(infeng_instance_guid),
