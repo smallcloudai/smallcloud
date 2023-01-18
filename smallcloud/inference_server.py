@@ -83,10 +83,42 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
         return "ERROR", []
     t1 = time.time()
     hms = datetime.datetime.now().strftime("%H:%M:%S.%f")
-    log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp["retcode"], "green")))
+    log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp.get("retcode", "no retcode"), "green")))
     if verbose:
         log("%s %s" % (url, json.dumps(json_resp, indent=4)))
     return json_resp["retcode"], json_resp.get("batch", [])
+
+
+def head_and_tail(base: str, modified: str):
+    """
+    Finds common head and tail of two strings.
+    Returns tuple (head, tail) in chars.
+    """
+    head = 0
+    tail = 0
+    l = min(len(base), len(modified))
+    for i in range(l):
+        if base[i] != modified[i]:
+            break
+        head += 1
+    if head == len(base) == len(modified):
+        return head, 0
+    for i in range(l):
+        if base[-i-1] != modified[-i-1]:
+            break
+        tail += 1
+    return head, tail
+
+
+def test_head_and_tail():
+    assert head_and_tail("abc", "abc") == (3, 0)
+    assert head_and_tail("abc", "ab") == (2, 0)
+    assert head_and_tail("abc", "b") == (0, 0)
+    assert head_and_tail("abc", "c") == (0, 1)
+    assert head_and_tail("abc", "xabc") == (0, 3)
+
+
+DEBUG_UPLOAD_NOT_SEPARATE_PROCESS = False
 
 
 class UploadProxy:
@@ -94,12 +126,15 @@ class UploadProxy:
         multiprocessing.set_start_method("spawn")
         self.upload_q = multiprocessing.Queue()
         self.cancelled_q = multiprocessing.Queue()
-        self.proc = multiprocessing.Process(
-            target=_upload_results_loop,
-            args=(self.upload_q, self.cancelled_q),
-            name="upload_results",
-            )
-        self.proc.start()
+        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
+            self.proc = None
+        else:
+            self.proc = multiprocessing.Process(
+                target=_upload_results_loop,
+                args=(self.upload_q, self.cancelled_q),
+                name="upload_results",
+                )
+            self.proc.start()
         self._cancelled: Set[str] = set()
 
     def stop(self):
@@ -144,7 +179,9 @@ class UploadProxy:
         for i, b in enumerate(idx_updated):
             progress[original_batch[b]["id"]] = {
                 "id": original_batch[b]["id"],
+                "stream": original_batch[b]["stream"],
                 "object": "text_completion",
+                "orig_files": original_batch[b]["sources"],
                 "choices": [
                     {
                         "index": 0,
@@ -163,6 +200,8 @@ class UploadProxy:
         upload_dict["check_cancelled"] = [call["id"] for call in original_batch]
         upload_dict["model_name"] = description_dict["model"]
         self.upload_q.put(copy.deepcopy(upload_dict))
+        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
+            _upload_results_loop(self.upload_q, self.cancelled_q)
 
     def keepalive(self):
         self.upload_q.put(dict(keepalive=1))
@@ -207,6 +246,23 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 upload_dict["progress"].update(maybe_pile_up["progress"])
                 upload_dict["ts_batch_finished"] = maybe_pile_up["ts_batch_finished"]
         resp = None
+        # Remove head and tail if streaming, "files" becomes "files_head_mid_tail"
+        for k, progress_dict in upload_dict["progress"].items():
+            stream = progress_dict["stream"]
+            orig_files = progress_dict.pop("orig_files")
+            if not stream:
+                continue
+            stream_files = dict()
+            for choice in progress_dict["choices"]:
+                files = choice.pop("files")
+                for k in files.keys():
+                    head, tail = head_and_tail(orig_files[k], files[k])
+                    stream_files[k] = {
+                        "head": head,
+                        "mid": files[k][head:-tail],
+                        "tail": tail,
+                    }
+                choice["files_head_mid_tail"] = stream_files
         t2 = time.time()
         for _attempt in range(5):
             j = dict()
@@ -243,3 +299,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
             len(upload_dict["progress"]),
             cancelled_n,
             ))
+        if j.get("retcode", "FAIL") != "OK":
+            log("Server returned:", str(j))
+        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
+            break
