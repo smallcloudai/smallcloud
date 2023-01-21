@@ -234,7 +234,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 break
             maybe_pile_up = upload_q.get() if not upload_q.empty() else None
             if maybe_pile_up is None:
-                if time.time() < t1 + 0.5:
+                if time.time() < t1 + 0.3:
                     # Normally send every ~0.5 seconds
                     time.sleep(0.1)
                     continue
@@ -256,7 +256,10 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
             for choice in progress_dict["choices"]:
                 files = choice.pop("files")
                 for k in files.keys():
-                    head, tail = head_and_tail(orig_files[k], files[k])
+                    orig = orig_files[k]
+                    if not orig.endswith("\n"):
+                        orig += "\n"
+                    head, tail = head_and_tail(orig, files[k])
                     stream_files[k] = {
                         "head": head,
                         "mid": files[k][head:-tail],
