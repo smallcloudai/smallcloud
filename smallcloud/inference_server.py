@@ -177,11 +177,10 @@ class UploadProxy:
         upload_dict["ts_batch_finished"] = ts_batch_finished
         progress = dict()
         for i, b in enumerate(idx_updated):
-            progress[original_batch[b]["id"]] = {
+            tmp = {
                 "id": original_batch[b]["id"],
                 "stream": original_batch[b]["stream"],
                 "object": "text_completion",
-                "orig_files": original_batch[b]["sources"],
                 "choices": [
                     {
                         "index": 0,
@@ -196,6 +195,9 @@ class UploadProxy:
                 "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
+            if "sources" in original_batch[b]:
+                tmp["orig_files"] = original_batch[b]["sources"]
+            progress[original_batch[b]["id"]] = tmp
         upload_dict["progress"] = progress
         upload_dict["check_cancelled"] = [call["id"] for call in original_batch]
         upload_dict["model_name"] = description_dict["model"]
@@ -249,8 +251,10 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
         # Remove head and tail if streaming, "files" becomes "files_head_mid_tail"
         for k, progress_dict in upload_dict["progress"].items():
             stream = progress_dict["stream"]
-            orig_files = progress_dict.pop("orig_files")
-            if not stream:
+            have_orig_files = "orig_files" in progress_dict
+            if have_orig_files:
+                orig_files = progress_dict.pop("orig_files")
+            if not stream or not have_orig_files:
                 continue
             stream_files = dict()
             for choice in progress_dict["choices"]:
