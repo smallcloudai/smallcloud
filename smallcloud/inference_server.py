@@ -1,4 +1,4 @@
-import sys, json, re, requests, time, datetime, termcolor, multiprocessing, copy, queue
+import os, sys, json, re, requests, time, datetime, termcolor, multiprocessing, copy, queue
 from typing import Dict, Any, List, Optional, Set
 
 
@@ -8,6 +8,16 @@ urls_to_try = [url_base1, url_base2]
 
 urls_switch_n = 0
 urls_switch_ts = time.time()
+
+
+def infserver_session() -> requests.Session:
+    if "SMALLCLOUD_API_KEY" not in os.environ:
+        raise ValueError("Please set SMALLCLOUD_API_KEY environment variable, make sure you have rights to host a model.")
+    s = requests.Session()
+    s.headers.update({
+        "Authorization": "Bearer %s" % os.environ["SMALLCLOUD_API_KEY"],
+    })
+    return s
 
 
 def log(*args):
@@ -70,8 +80,6 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             continue
         except Exception as e:
             log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150] if resp else "no response"))
-            # if resp is not None:
-            #     log("server response text:\n%s" % (resp.text,))
             url_complain_doesnt_work()
             continue
         if resp and resp.status_code != 200:
@@ -215,7 +223,7 @@ class UploadProxy:
 
 
 def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiprocessing.Queue):
-    req_session = requests.Session()
+    req_session = infserver_session()
     exit_flag = False
     while not exit_flag:
         try:
