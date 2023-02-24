@@ -92,7 +92,7 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
     t1 = time.time()
     hms = datetime.datetime.now().strftime("%H:%M:%S.%f")
     log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp.get("retcode", "no retcode"), "green")))
-    if verbose:
+    if verbose or "retcode" not in json_resp:
         log("%s %s" % (url, json.dumps(json_resp, indent=4)))
     return json_resp["retcode"], json_resp.get("batch", [])
 
