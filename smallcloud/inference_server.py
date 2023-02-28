@@ -94,7 +94,7 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
     log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp.get("retcode", "no retcode"), "green")))
     if verbose or "retcode" not in json_resp:
         log("%s %s" % (url, json.dumps(json_resp, indent=4)))
-    return json_resp["retcode"], json_resp.get("batch", [])
+    return json_resp.get("retcode", "ERROR"), json_resp.get("batch", [])
 
 
 def head_and_tail(base: str, modified: str):
