@@ -112,7 +112,7 @@ def head_and_tail(base: str, modified: str):
         head += 1
     if head == len(base) == len(modified):
         return head, 0
-    for i in range(l):
+    for i in range(l - head):
         if base[-i-1] != modified[-i-1]:
             break
         tail += 1
@@ -275,7 +275,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                     head, tail = head_and_tail(orig, files[k])
                     stream_files[k] = {
                         "head": head,
-                        "mid": files[k][head:-tail],
+                        "mid": (files[k][head:-tail]) if tail>0 else (files[k][head:]),
                         "tail": tail,
                     }
                 choice["files_head_mid_tail"] = stream_files
