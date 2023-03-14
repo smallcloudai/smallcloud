@@ -131,20 +131,30 @@ DEBUG_UPLOAD_NOT_SEPARATE_PROCESS = False
 
 
 class UploadProxy:
-    def __init__(self):
-        multiprocessing.set_start_method("spawn")
-        self.upload_q = multiprocessing.Queue()
-        self.cancelled_q = multiprocessing.Queue()
-        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
-            self.proc = None
-        else:
-            self.proc = multiprocessing.Process(
-                target=_upload_results_loop,
-                args=(self.upload_q, self.cancelled_q),
-                name="upload_results",
-                )
-            self.proc.start()
+    def __init__(
+            self,
+            upload_q: multiprocessing.Queue,
+            cancelled_q: multiprocessing.Queue,
+    ):
+        try:
+            multiprocessing.set_start_method("spawn")
+        except:  # it could be already set
+            pass
+        self.upload_q = upload_q
+        self.cancelled_q = cancelled_q
+        self.proc = None
         self._cancelled: Set[str] = set()
+
+    def start_upload_result_daemon(self):
+        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
+            return
+        self.proc = multiprocessing.Process(
+            target=_upload_results_loop,
+            args=(self.upload_q, self.cancelled_q),
+            name="upload_results",
+        )
+        self.proc.start()
+        return self.proc
 
     def stop(self):
         if self.proc:
