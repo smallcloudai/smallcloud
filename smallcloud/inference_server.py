@@ -1,6 +1,7 @@
 import os, sys, json, re, time, datetime, termcolor, multiprocessing, copy, queue
 import requests
 from typing import Dict, Any, List, Optional, Set
+from code_contrast.scratchpad import utils
 
 
 url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
@@ -273,9 +274,13 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                     if not orig.endswith("\n"):
                         orig += "\n"
                     head, tail = head_and_tail(orig, files[k])
+                    # mid1 = (files[k][head:-tail]) if tail>0 else (files[k][head:])
+                    mid2 = utils.simple_stoplist_cut(orig, files[k], head, tail)
+                    # print("mid1", mid1)
+                    # print("mid2", mid2)
                     stream_files[k] = {
                         "head": head,
-                        "mid": (files[k][head:-tail]) if tail>0 else (files[k][head:]),
+                        "mid": mid2,
                         "tail": tail,
                     }
                 choice["files_head_mid_tail"] = stream_files
