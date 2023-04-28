@@ -203,7 +203,7 @@ class UploadProxy:
                 "choices": [
                     {
                         "index": 0,
-                        "files": files[i],
+                        # "files": files[i],
                         # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
                         "logprobs": None,
                         "finish_reason": finish_reason[i]
@@ -214,6 +214,11 @@ class UploadProxy:
                 "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
+            if "chat__role" not in files[i]:  # normal
+                tmp["choices"][0]["files"] = files[i]
+            else:
+                tmp["choices"][0]["role"] = files[i]["chat__role"]
+                tmp["choices"][0]["delta"] = files[i]["chat__delta"]
             if "sources" in original_batch[b]:
                 tmp["orig_files"] = original_batch[b]["sources"]
             progress[original_batch[b]["id"]] = tmp
