@@ -218,7 +218,7 @@ class UploadProxy:
                 tmp["choices"][0]["files"] = files[i]
             else:
                 tmp["choices"][0]["role"] = files[i]["chat__role"]
-                tmp["choices"][0]["delta"] = files[i]["chat__delta"]
+                tmp["choices"][0]["content"] = files[i]["chat__content"]
             if "sources" in original_batch[b]:
                 tmp["orig_files"] = original_batch[b]["sources"]
             progress[original_batch[b]["id"]] = tmp
