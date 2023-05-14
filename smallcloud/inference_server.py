@@ -133,15 +133,15 @@ DEBUG_UPLOAD_NOT_SEPARATE_PROCESS = False
 class UploadProxy:
     def __init__(
             self,
-            upload_q: multiprocessing.Queue,
-            cancelled_q: multiprocessing.Queue,
+            upload_q: Optional[multiprocessing.Queue],
+            cancelled_q: Optional[multiprocessing.Queue],
     ):
         try:
             multiprocessing.set_start_method("spawn")
         except:  # it could be already set
             pass
-        self.upload_q = upload_q
-        self.cancelled_q = cancelled_q
+        self.upload_q = upload_q or multiprocessing.Queue()
+        self.cancelled_q = cancelled_q or multiprocessing.Queue()
         self.proc = None
         self._cancelled: Set[str] = set()
 
