@@ -200,7 +200,7 @@ class UploadAsync:
                     async with self.aio_session.post(url, json=upload_dict, timeout=2) as resp:
                         txt = await resp.text()
                         j = await resp.json()
-                except aiohttp.ServerTimeoutError as e:
+                except asyncio.exceptions.TimeoutError as e:
                     t1 = time.time()
                     log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
                     inference_server.url_complain_doesnt_work()
