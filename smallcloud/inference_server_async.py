@@ -69,6 +69,7 @@ class UploadAsync:
         self.upload_q = asyncio.Queue()
         self.cancelled_q = asyncio.Queue()
         self._cancelled: Set[str] = set()
+        self.finished = False
 
     def cancelled_reset(self):
         while not self.cancelled_q.empty():
@@ -97,7 +98,8 @@ class UploadAsync:
         ts_prompt: float,
         ts_first_token: float,
         ts_batch_finished: float,
-    ):
+    ) -> Optional[int]:
+        if self.finished: return 1
         upload_dict = copy.deepcopy(description_dict)
         upload_dict["ts_arrived"] = ts_arrived
         upload_dict["ts_batch_started"] = ts_batch_started
@@ -139,6 +141,7 @@ class UploadAsync:
 
     async def upload_results_coroutine(self):
         exit_flag = False
+        ids_cancelled = set()
         while not exit_flag:
             try:
                 upload_dict = await asyncio.wait_for(self.upload_q.get(), timeout=600)
@@ -197,9 +200,24 @@ class UploadAsync:
                 j = dict()
                 try:
                     url = inference_server.url_get_the_best() + "completion-upload-results"
+
+                    progress_objects = upload_dict["progress"]
+                    for p_obj_id, p_obj in progress_objects.items():
+                        more_toplevel_fields = p_obj.get("more_toplevel_fields", {})
+                        if p_obj_id in ids_cancelled:
+                            if more_toplevel_fields:
+                                more_toplevel_fields['finish_reason'] = "cancelled"
+                                exit_flag = True
+                        progress_objects[p_obj_id]["more_toplevel_fields"] = \
+                            more_toplevel_fields if more_toplevel_fields.get('finish_reason') else dict()
+                    upload_dict["progress"] = progress_objects
+
                     async with self.aio_session.post(url, json=upload_dict, timeout=2) as resp:
                         txt = await resp.text()
                         j = await resp.json()
+
+                    ids_cancelled.clear()
+                    if exit_flag: self.finished = True
                 except asyncio.exceptions.TimeoutError as e:
                     t1 = time.time()
                     log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
@@ -219,6 +237,7 @@ class UploadAsync:
             if "cancelled" in j:
                 for can in j["cancelled"]:
                     self.cancelled_q.put_nowait(can)
+                    ids_cancelled.add(can)
                     cancelled_n += 1
             log("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
                 termcolor.colored("%0.1fms" % (1000*(t3 - t2),), "green"),
