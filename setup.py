@@ -12,6 +12,8 @@ setup(
     install_requires=[
         "termcolor",
         "pandas",
+        "requests",
+        "cloudpickle",
     ],
     author="Small Magellanic Cloud AI Ltd.",
     author_email="cli-tool@smallcloud.tech",

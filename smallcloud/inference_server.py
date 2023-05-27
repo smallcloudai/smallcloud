@@ -132,20 +132,30 @@ DEBUG_UPLOAD_NOT_SEPARATE_PROCESS = False
 
 
 class UploadProxy:
-    def __init__(self):
-        multiprocessing.set_start_method("spawn")
-        self.upload_q = multiprocessing.Queue()
-        self.cancelled_q = multiprocessing.Queue()
-        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
-            self.proc = None
-        else:
-            self.proc = multiprocessing.Process(
-                target=_upload_results_loop,
-                args=(self.upload_q, self.cancelled_q),
-                name="upload_results",
-                )
-            self.proc.start()
+    def __init__(
+            self,
+            upload_q: Optional[multiprocessing.Queue],
+            cancelled_q: Optional[multiprocessing.Queue],
+    ):
+        try:
+            multiprocessing.set_start_method("spawn")
+        except:  # it could be already set
+            pass
+        self.upload_q = upload_q or multiprocessing.Queue()
+        self.cancelled_q = cancelled_q or multiprocessing.Queue()
+        self.proc = None
         self._cancelled: Set[str] = set()
+
+    def start_upload_result_daemon(self):
+        if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
+            return
+        self.proc = multiprocessing.Process(
+            target=_upload_results_loop,
+            args=(self.upload_q, self.cancelled_q),
+            name="upload_results",
+        )
+        self.proc.start()
+        return self.proc
 
     def stop(self):
         if self.proc:
@@ -194,7 +204,7 @@ class UploadProxy:
                 "choices": [
                     {
                         "index": 0,
-                        "files": files[i],
+                        # "files": files[i],
                         # "tokens": ([int(t) for t in tokens[b]] if tokens is not None else None),
                         "logprobs": None,
                         "finish_reason": finish_reason[i]
@@ -205,6 +215,11 @@ class UploadProxy:
                 "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
+            if "chat__role" not in files[i]:  # normal
+                tmp["choices"][0]["files"] = files[i]
+            else:
+                tmp["choices"][0]["role"] = files[i]["chat__role"]
+                tmp["choices"][0]["content"] = files[i]["chat__content"]
             if "sources" in original_batch[b]:
                 tmp["orig_files"] = original_batch[b]["sources"]
             progress[original_batch[b]["id"]] = tmp
