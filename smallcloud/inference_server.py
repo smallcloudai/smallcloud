@@ -4,9 +4,16 @@ from typing import Dict, Any, List, Optional, Set
 from code_contrast.scratchpad import utils
 
 
-url_base1 = "https://inference.smallcloud.ai/infengine-v1/"
-url_base2 = "https://inference-backup.smallcloud.ai/infengine-v1/"
-urls_to_try = [url_base1, url_base2]
+urls_to_try = [
+    "https://inference.smallcloud.ai/infengine-v1/",
+    "https://inference-backup.smallcloud.ai/infengine-v1/",
+]
+
+
+def override_urls(*urls):
+    global urls_to_try
+    urls_to_try = list(urls)
+
 
 urls_switch_n = 0
 urls_switch_ts = time.time()
