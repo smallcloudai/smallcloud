@@ -2,6 +2,8 @@ import os, sys, json, re, time, datetime, termcolor, multiprocessing, copy, queu
 import requests
 from typing import Dict, Any, List, Optional, Set
 from code_contrast.scratchpad import utils
+import logging
+log = logging.getLogger("INFSERVER").info
 
 
 urls_to_try = [
@@ -27,11 +29,6 @@ def infserver_session() -> requests.Session:
         "Authorization": "Bearer %s" % os.environ["SMALLCLOUD_API_KEY"],
     })
     return s
-
-
-def log(*args):
-    sys.stderr.write(" ".join([str(x) for x in args]) + "\n")
-    sys.stderr.flush()
 
 
 def url_get_the_best():
