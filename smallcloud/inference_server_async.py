@@ -197,12 +197,13 @@ class UploadAsync:
                 j = dict()
                 try:
                     url = inference_server.url_get_the_best() + "completion-upload-results"
-                    async with self.aio_session.post(url, json=upload_dict, timeout=2) as resp:
+                    async with self.aio_session.post(url, json=upload_dict, timeout=15) as resp:
                         txt = await resp.text()
                         j = await resp.json()
                 except asyncio.exceptions.TimeoutError as e:
                     t1 = time.time()
-                    log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                    # log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                    log(termcolor.colored(f'TIMEOUT', 'green'))
                     inference_server.url_complain_doesnt_work()
                     continue
                 except aiohttp.ClientError as e:
