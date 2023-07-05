@@ -202,7 +202,7 @@ class UploadAsync:
                         j = await resp.json()
                 except asyncio.exceptions.TimeoutError as e:
                     t1 = time.time()
-                    log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                    log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(time.time() - t2), url, termcolor.colored("TIMEOUT", "green")))
                     inference_server.url_complain_doesnt_work()
                     continue
                 except aiohttp.ClientError as e:
