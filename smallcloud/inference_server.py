@@ -2,7 +2,7 @@ import os, sys, json, re, time, datetime, termcolor, multiprocessing, copy, queu
 import requests
 from typing import Dict, Any, List, Optional, Set
 import logging
-log = logging.getLogger("INFSERVER").info
+logger = logging.getLogger("INFSERVER")
 
 
 urls_to_try = [
@@ -80,15 +80,15 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
             json_resp = resp.json()
         except requests.exceptions.ReadTimeout as e:
             t1 = time.time()
-            log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
+            logger.warning("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
             url_complain_doesnt_work()
             continue
         except Exception as e:
-            log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150] if resp else "no response"))
+            logger.warning("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), resp.text[:150] if resp else "no response"))
             url_complain_doesnt_work()
             continue
         if resp and resp.status_code != 200:
-            log("%s status_code %i %s" % (url, resp.status_code, resp.text))
+            logger.warning("%s status_code %i %s" % (url, resp.status_code, resp.text))
             url_complain_doesnt_work()
             continue
         break
@@ -96,9 +96,9 @@ def completions_wait_batch(req_session, my_desc, verbose=False):
         return "ERROR", []
     t1 = time.time()
     hms = datetime.datetime.now().strftime("%H:%M:%S.%f")
-    log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp.get("retcode", "no retcode"), "green")))
+    logger.info("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(json_resp.get("retcode", "no retcode"), "green")))
     if verbose or "retcode" not in json_resp:
-        log("%s %s" % (url, json.dumps(json_resp, indent=4)))
+        logger.warning("%s unrecognized json: %s" % (url, json.dumps(json_resp, indent=4)))
     return json_resp.get("retcode", "ERROR"), json_resp.get("batch", [])
 
 
@@ -249,7 +249,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
         try:
             upload_dict = upload_q.get(timeout=600)
         except queue.Empty as e:
-            log("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop timeout, exiting", "red")))
+            logger.warning("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop timeout, exiting", "red")))
             exit_flag = True
             continue
         if "exit" in upload_dict:
@@ -311,17 +311,17 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
                 j = resp.json()
             except requests.exceptions.ReadTimeout as e:
                 t3 = time.time()
-                log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
+                logger.warning("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t3 - t2), url, termcolor.colored("TIMEOUT", "green")))
                 url_complain_doesnt_work()
                 continue
             except Exception as e:
-                log("%s post response failed: %s\nServer response was: \"%s\"" % (url, str(e), resp.text[:150] if resp else "no response"))
+                logger.warning("%s post response failed: %s\nServer response was: \"%s\"" % (url, str(e), resp.text[:150] if resp else "no response"))
                 #if resp is not None:
-                #    log("server response text:\n%s" % (resp.text,))
+                #    logger.warning("server response text:\n%s" % (resp.text,))
                 url_complain_doesnt_work()
                 continue
             if resp and resp.status_code != 200:
-                log("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:150]))
+                logger.warning("%s post response failed: %i %s" % (url, resp.status_code, resp.text[:150]))
                 url_complain_doesnt_work()
                 continue
             break
@@ -331,7 +331,7 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
             for can in j["cancelled"]:
                 cancelled_q.put(can)
                 cancelled_n += 1
-        log("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
+        logger.info("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
             termcolor.colored("%0.1fms" % (1000*(t3 - t2),), "green"),
             url,
             j.get("retcode", "FAIL"),
@@ -339,6 +339,6 @@ def _upload_results_loop(upload_q: multiprocessing.Queue, cancelled_q: multiproc
             cancelled_n,
             ))
         if j.get("retcode", "FAIL") != "OK":
-            log("Server returned:", str(j))
+            logger.warning("Server returned:", str(j))
         if DEBUG_UPLOAD_NOT_SEPARATE_PROCESS:
             break

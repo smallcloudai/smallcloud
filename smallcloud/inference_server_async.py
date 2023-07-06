@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional, Set
 
 
 validate_description_dict = inference_server.validate_description_dict
-log = inference_server.log
+logger = inference_server.logger
 
 
 WAIT_TIMEOUT = 15
@@ -38,15 +38,15 @@ async def completions_wait_batch(
                 j = await resp.json()
         except asyncio.TimeoutError:
             t1 = time.time()
-            log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
+            logger.warning("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(t1 - t0), url, termcolor.colored("TIMEOUT", "green")))
             inference_server.url_complain_doesnt_work()
             continue
         except aiohttp.ClientError as e:
-            log("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), txt[:150] if txt else "no response"))
+            logger.warning("%s fetch batch failed: %s %s\nServer response was: \"%s\"" % (url, str(type(e)), str(e), txt[:150] if txt else "no response"))
             inference_server.url_complain_doesnt_work()
             continue
         if "retcode" not in j:
-            log("%s unrecognied json: %s" % (url, txt[:150]))
+            logger.warning("%s unrecognized json: %s" % (url, txt[:150]))
             inference_server.url_complain_doesnt_work()
             continue
         break
@@ -54,9 +54,9 @@ async def completions_wait_batch(
         return "ERROR", []
     t1 = time.time()
     hms = datetime.datetime.now().strftime("%H:%M:%S.%f")
-    log("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(j.get("retcode", "no retcode"), "green")))
+    logger.info("%s %0.1fms %s %s" % (hms, 1000*(t1 - t0), url, termcolor.colored(j.get("retcode", "no retcode"), "green")))
     if verbose:
-        log("%s %s" % (url, json.dumps(j, indent=4)))
+        logger.info("%s %s" % (url, json.dumps(j, indent=4)))
     return j.get("retcode", "ERROR"), j.get("batch", [])
 
 
@@ -143,7 +143,7 @@ class UploadAsync:
             try:
                 upload_dict = await asyncio.wait_for(self.upload_q.get(), timeout=600)
             except asyncio.TimeoutError:
-                log("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop cancelled", "red")))
+                logger.warning("%s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), termcolor.colored("upload_results_loop cancelled", "red")))
                 exit_flag = True
                 continue
             if "exit" in upload_dict:
@@ -202,15 +202,15 @@ class UploadAsync:
                         j = await resp.json()
                 except asyncio.exceptions.TimeoutError as e:
                     t1 = time.time()
-                    log("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(time.time() - t2), url, termcolor.colored("TIMEOUT", "green")))
+                    logger.warning("%s %0.1fms %s %s" % (datetime.datetime.now().strftime("%H:%M:%S.%f"), 1000*(time.time() - t2), url, termcolor.colored("TIMEOUT", "green")))
                     inference_server.url_complain_doesnt_work()
                     continue
                 except aiohttp.ClientError as e:
-                    log("%s post response failed: %s\nServer response was: \"%s\"" % (url, str(e), txt[:150] if txt else "no response"))
+                    logger.warning("%s post response failed: %s\nServer response was: \"%s\"" % (url, str(e), txt[:150] if txt else "no response"))
                     inference_server.url_complain_doesnt_work()
                     continue
                 if "retcode" not in j:
-                    log("%s unrecognied json: %s" % (url, txt[:150]))
+                    logger.warning("%s unrecognied json: %s" % (url, txt[:150]))
                     inference_server.url_complain_doesnt_work()
                     continue
                 break
@@ -220,7 +220,7 @@ class UploadAsync:
                 for can in j["cancelled"]:
                     self.cancelled_q.put_nowait(can)
                     cancelled_n += 1
-            log("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
+            logger.info("%s %s %s %s %i uploaded, %i cancelled" % (datetime.datetime.now().strftime("%H:%M:%S.%f"),
                 termcolor.colored("%0.1fms" % (1000*(t3 - t2),), "green"),
                 url,
                 j.get("retcode", "FAIL"),
@@ -228,7 +228,7 @@ class UploadAsync:
                 cancelled_n,
                 ))
             if j.get("retcode", "FAIL") != "OK":
-                log("Server returned:", txt[:150])
+                logger.warning("Server returned:", txt[:150])
 
     async def shutdown_coroutine(self):
         await self.upload_q.put({"exit": True})
