@@ -124,11 +124,15 @@ class UploadAsync:
                 "more_toplevel_fields": (more_toplevel_fields[i] if more_toplevel_fields is not None else dict()),
                 "generated_tokens_n": (generated_tokens_n[i] if generated_tokens_n is not None else 0),
             }
-            if "chat__role" not in files[i]:  # normal
-                tmp["choices"][0]["files"] = files[i]
-            else:
+            if "chat__role" in files[i]:
+                # deprecated, "chat__messages" is the new way
                 tmp["choices"][0]["role"] = files[i]["chat__role"]
                 tmp["choices"][0]["content"] = files[i]["chat__content"]
+            elif "chat__messages" in files[i]:
+                tmp["choices"][0]["messages"] = files[i]["chat__messages"]
+            else:
+                # normal
+                tmp["choices"][0]["files"] = files[i]
             if "sources" in original_batch[b]:
                 tmp["orig_files"] = original_batch[b]["sources"]
             progress[original_batch[b]["id"]] = tmp
